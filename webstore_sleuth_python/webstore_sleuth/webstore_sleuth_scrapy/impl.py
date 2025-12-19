@@ -1,4 +1,3 @@
-
 import queue
 import threading
 from typing import Sequence, Iterator, Any
@@ -8,13 +7,16 @@ from scrapy.utils.project import get_project_settings
 
 from webstore_sleuth.schemas import Product, BaseSite
 from webstore_sleuth.scraper import Scraper
-from webstore_sleuth.webstore_sleuth_scrapy.spiders.universal_product_spider import UniversalProductSpider
+from webstore_sleuth.webstore_sleuth_scrapy.spiders.universal_product_spider import (
+    UniversalProductSpider,
+)
 
 
 class ScrapyScraper(Scraper):
     """
     Concrete implementation of the Scraper protocol using Scrapy.
     """
+
     def __init__(self, sites: Sequence[BaseSite]):
         self.sites = sites
         self._results_queue = queue.Queue()
@@ -28,7 +30,7 @@ class ScrapyScraper(Scraper):
             item = self._results_queue.get()
             if item is None:
                 break
-            
+
             yield self._to_product(item)
 
         t.join()
@@ -39,10 +41,10 @@ class ScrapyScraper(Scraper):
         crawler = process.create_crawler(UniversalProductSpider)
         crawler.signals.connect(self._on_item_scraped, signal=signals.item_scraped)
         process.crawl(crawler, sites=self.sites)
-        
+
         # CHANGED: Explicitly disable signal handlers to avoid threading error
-        process.start(install_signal_handlers=False) 
-        
+        process.start(install_signal_handlers=False)
+
         self._results_queue.put(None)
 
     def _on_item_scraped(self, item, response, spider):
