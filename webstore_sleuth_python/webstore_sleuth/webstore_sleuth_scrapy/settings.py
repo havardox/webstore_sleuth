@@ -24,9 +24,9 @@ SCRAPOXY_USERNAME = os.getenv("SCRAPOXY_USERNAME")
 SCRAPOXY_PASSWORD = os.getenv("SCRAPOXY_PASSWORD")
 
 SCRAPOXY_WAIT_FOR_PROXIES = True
-SCRAPOXY_MODE_START = 'HOT'
-SCRAPOXY_MODE_RESTART = 'HOT'
-SCRAPOXY_MODE_STOP = 'OFF'
+SCRAPOXY_MODE_START = "HOT"
+SCRAPOXY_MODE_RESTART = "HOT"
+SCRAPOXY_MODE_STOP = "OFF"
 SCRAPOXY_PROXIES_CHECK = 20  # Default is 10 seconds
 
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
@@ -92,7 +92,7 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 3
 # Enable showing throttling stats for every response received:
 AUTOTHROTTLE_DEBUG = False
 
-URLLENGTH_LIMIT=4096
+URLLENGTH_LIMIT = 4096
 
 # Enable and configure HTTP caching (disabled by default)
 # See https://dvocs.scrapy.org/en/latest/topics/downloader-middleware.html#httpcache-middleware-settings

@@ -83,7 +83,7 @@ class ProductCandidate:
     def best_offer(self) -> dict[str, Any]:
         """
         Selects the single most relevant offer from the list of offers.
-        
+
         Selection Logic:
         1. Availability: InStock > OutOfStock > PreOrder > Unknown.
         2. Price presence: Offers with a price are preferred over those without.
@@ -132,7 +132,7 @@ class ProductCandidate:
     def ean(self) -> str | None:
         """
         Searches for a Global Trade Item Number (GTIN/EAN/ISBN).
-        
+
         Search Order:
         1. Explicit keys (gtin, ean, isbn) in the root product object.
         2. Explicit keys in the best offer object.
@@ -159,7 +159,7 @@ class ProductCandidate:
     def is_active(self) -> bool:
         """
         Determines if the product is currently buyable.
-        
+
         Heuristics:
         1. Checks explicit strings (e.g., 'OutOfStock', 'Discontinued').
         2. Checks 'validFrom' and 'validThrough' date ranges against current UTC time.
@@ -240,16 +240,16 @@ def extract_product(
     ext_curr = candidate.currency if candidate else None
     ext_ean = candidate.ean if candidate else None
     ext_mpn = candidate.mpn if candidate else None
-    
+
     # Logic note: candidate.is_active relies on extracted data (including price).
-    # If the user supplies a manual `price` override for an item with no 
-    # internal price, `candidate.is_active` might return False. 
+    # If the user supplies a manual `price` override for an item with no
+    # internal price, `candidate.is_active` might return False.
     # We patch that heuristic here.
     ext_active = candidate.is_active if candidate else False
 
     final_price = price or ext_price
 
-    # If we have a final price but the candidate thought it was inactive 
+    # If we have a final price but the candidate thought it was inactive
     # strictly due to missing price, force it active.
     if not ext_active and final_price and candidate and not ext_price:
         # Re-check active logic assuming price is valid
