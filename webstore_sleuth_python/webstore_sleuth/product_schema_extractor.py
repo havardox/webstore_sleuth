@@ -32,29 +32,6 @@ def get_first_nonempty(*args) -> str | None:
     return None
 
 
-def normalize_type_strings(t: Any) -> list[str]:
-    """
-    Cleans raw Schema.org type strings into a consistent format.
-
-    Transformation Example:
-    -----------------------
-    Input:  [
-        "https://schema.org/Product",
-        "http://purl.org/goodrelations/v1#Offering",
-        "Item"
-    ]
-    Output: ["product", "offering", "item"]
-    """
-    raw = t if isinstance(t, list) else [t]
-    out: list[str] = []
-    for item in raw:
-        if isinstance(item, str):
-            # Split by '/' or '#' to handle "schema.org/Product" or "vocabulary#Product"
-            token = item.strip().split("/")[-1].split("#")[-1]
-            out.append(token.lower())
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Schema Normalization
 # ---------------------------------------------------------------------------
@@ -63,6 +40,29 @@ class SchemaNormalizer:
     Standardizes disparate schema formats (JSON-LD vs Microdata) into a
     flat list of dictionaries with consistent key access.
     """
+
+    def normalize_type_strings(t: Any) -> list[str]:
+        """
+        Cleans raw Schema.org type strings into a consistent format.
+
+        Transformation Example:
+        -----------------------
+        Input:  [
+            "https://schema.org/Product",
+            "http://purl.org/goodrelations/v1#Offering",
+            "Item"
+        ]
+        Output: ["product", "offering", "item"]
+        """
+        raw = t if isinstance(t, list) else [t]
+        out: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                # Split by '/' or '#' to handle "schema.org/Product" or "vocabulary#Product"
+                token = item.strip().split("/")[-1].split("#")[-1]
+                out.append(token.lower())
+        return out
+
 
     def collect_candidates(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         """
@@ -114,7 +114,7 @@ class SchemaNormalizer:
             elif isinstance(obj, dict):
                 # If this node has a type, it's a candidate entity.
                 if "@type" in obj or "type" in obj:
-                    obj["@type"] = normalize_type_strings(
+                    obj["@type"] = self.normalize_type_strings(
                         obj.get("@type") or obj.get("type")
                     )
                     nodes.append(obj)
@@ -155,7 +155,7 @@ class SchemaNormalizer:
         }
         """
         return {
-            "@type": normalize_type_strings(item.get("type")),
+            "@type": self.normalize_type_strings(item.get("type")),
             **self._convert_microdata_value(item.get("properties", {})),
         }
 
