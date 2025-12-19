@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
@@ -6,334 +8,364 @@ import extruct
 from pydantic import ValidationError
 
 from webstore_sleuth.schemas import Product
-from webstore_sleuth.utils.converters import parse_price, parse_iso_date, ensure_list
+from webstore_sleuth.utils.converters import (
+    parse_price,
+    parse_iso_date,
+    ensure_list,
+)
+
+
+GTIN_KEYS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "ean", "isbn")
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _get_first_nonempty(*args) -> str | None:
-    """Returns the first string argument that is not None or empty."""
+def get_first_nonempty(*args) -> str | None:
+    """
+    Returns the first non-empty string from the arguments.
+    Useful for fallback logic (e.g., check 'price', then 'highPrice').
+    """
     for a in args:
-        if a is None:
-            continue
-        if isinstance(a, str):
-            s = a.strip()
-            if s:
-                return s
-        elif isinstance(a, (int, float)):
+        if isinstance(a, str) and a.strip():
+            return a.strip()
+        if isinstance(a, (int, float, Decimal)):
             return str(a)
     return None
 
 
-def _normalize_type_strings(t: str | list[str] | None) -> list[str]:
-    """Normalizes schema types to lowercase class names (e.g. 'http://schema.org/Product' -> 'product')."""
-    if not t:
-        return []
+def normalize_type_strings(t: Any) -> list[str]:
+    """
+    Cleans raw Schema.org type strings into a consistent format.
 
+    Transformation Example:
+    -----------------------
+    Input:  "http://schema.org/Product"
+    Output: ["product"]
+
+    Input:  ["http://schema.org/Product", "http://schema.org/Thing"]
+    Output: ["product", "thing"]
+    """
     raw = t if isinstance(t, list) else [t]
-
-    normalized: list[str] = []
+    out: list[str] = []
     for item in raw:
-        if not isinstance(item, str):
-            continue
-        # Extract last part of URL or hashtag
-        token = item.strip().split("/")[-1].split("#")[-1]
-        normalized.append(token.lower())
-
-    return normalized
+        if isinstance(item, str):
+            # Split by '/' or '#' to handle "schema.org/Product" or "vocabulary#Product"
+            token = item.strip().split("/")[-1].split("#")[-1]
+            out.append(token.lower())
+    return out
 
 
 # ---------------------------------------------------------------------------
-# Data Normalization (Microdata & JSON-LD)
+# Schema Normalization
 # ---------------------------------------------------------------------------
-def _convert_microdata_value(val: Any) -> Any:
-    """Recursively simplifies microdata structures."""
-    if isinstance(val, list):
-        return [_convert_microdata_value(v) for v in val]
-
-    if isinstance(val, dict):
-        if "properties" in val:
-            # Flatten 'properties' up one level
-            props = val.get("properties") or {}
-            out: dict[str, Any] = {}
-            for k, v in props.items():
-                # Microdata properties are usually lists; take first if exists
-                extracted = v[0] if isinstance(v, list) and v else v
-                out[k] = _convert_microdata_value(extracted)
-            return out
-
-        return {k: _convert_microdata_value(v) for k, v in val.items()}
-
-    return val
-
-
-def _normalize_microdata_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Converts a microdata item into a JSON-LD style dictionary with @type."""
-    types: list[str] = []
-
-    if "type" in item:
-        types.extend(_normalize_type_strings(item.get("type")))
-
-    properties = item.get("properties", {}) or {}
-    normalized: dict[str, Any] = {"@type": list(set(types))}
-
-    for k, v in properties.items():
-        normalized[k] = _convert_microdata_value(v)
-
-    return normalized
-
-
-def _flatten_jsonld_graph(entry: Any) -> list[dict[str, Any]]:
-    """Flattens nested JSON-LD graphs into a list of nodes."""
-    nodes: list[dict[str, Any]] = []
-
-    def _recurse(obj: Any) -> None:
-        if isinstance(obj, list):
-            for i in obj:
-                _recurse(i)
-        elif isinstance(obj, dict):
-            # If it's a node with @type, keep it
-            if "@type" in obj:
-                nodes.append(obj)
-
-            # Traverse typical nesting fields
-            if "@graph" in obj:
-                _recurse(obj["@graph"])
-
-            # Sometimes products are nested in 'contains' or 'mainEntity'
-            for field in ("contains", "mainEntity", "hasVariant"):
-                if field in obj:
-                    _recurse(obj[field])
-
-    _recurse(entry)
-    return nodes
-
-
-# ---------------------------------------------------------------------------
-# Extraction Logic
-# ---------------------------------------------------------------------------
-def _choose_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+class SchemaNormalizer:
     """
-    Selects the best offer.
-    Priority:
-    1. InStock AND has Price
-    2. InStock (no price info)
-    3. Any other offer with Price
-    4. First available
+    Standardizes disparate schema formats (JSON-LD vs Microdata) into a
+    flat list of dictionaries with consistent key access.
     """
-    if not offers:
-        return None
 
-    def sort_key(o: dict[str, Any]) -> tuple[int, int]:
-        # Determine Availability Score
-        avail = str(o.get("availability") or "").lower()
+    def collect_candidates(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        Aggregates all entities found in both JSON-LD and Microdata blocks.
+        """
+        candidates: list[dict[str, Any]] = []
 
-        if "instock" in avail or "in_stock" in avail:
-            avail_score = 0
-        elif "outofstock" in avail or "soldout" in avail:
-            avail_score = 2
-        else:
-            avail_score = 1  # Unknown/Preorder
+        # JSON-LD is often a graph or a tree. We flatten it to find
+        # deeply nested Product nodes.
+        for entry in ensure_list(data.get("json-ld")):
+            candidates.extend(self._normalize_jsonld(entry))
 
-        # Determine Price Presence (prefer offers with price)
-        has_price = (
-            0 if (o.get("price") or o.get("lowPrice") or o.get("highPrice")) else 1
-        )
+        # Microdata is structured differently (nested 'properties').
+        # We normalize it to match the flat JSON-LD structure.
+        for item in ensure_list(data.get("microdata")):
+            if isinstance(item, dict):
+                candidates.append(self._normalize_microdata(item))
 
-        return avail_score, has_price
+        return candidates
 
-    return min(offers, key=sort_key)
+    def _normalize_jsonld(self, entry: Any) -> list[dict[str, Any]]:
+        """
+        Recursively traverses a JSON-LD tree and collects every object
+        that has a "@type" defined.
+
+        Transformation Example:
+        -----------------------
+        Input (Nested Tree):
+        {
+            "@type": "WebPage",
+            "mainEntity": {
+                "@type": "Product",     <-- Target
+                "name": "Widget"
+            }
+        }
+
+        Output (Flat List):
+        [
+            {"@type": ["webpage"], "mainEntity": {...}},
+            {"@type": ["product"], "name": "Widget"}
+        ]
+        """
+        nodes: list[dict[str, Any]] = []
+
+        def recurse(obj: Any) -> None:
+            if isinstance(obj, list):
+                for i in obj:
+                    recurse(i)
+            elif isinstance(obj, dict):
+                # If this node has a type, it's a candidate entity.
+                if "@type" in obj or "type" in obj:
+                    obj["@type"] = normalize_type_strings(
+                        obj.get("@type") or obj.get("type")
+                    )
+                    nodes.append(obj)
+
+                # Check known nesting keys to find buried entities
+                for field in ("@graph", "mainEntity", "contains", "hasVariant"):
+                    recurse(obj.get(field))
+
+        recurse(entry)
+        return nodes
+
+    def _normalize_microdata(self, item: dict[str, Any]) -> dict[str, Any]:
+        """
+        Microdata parsers often wrap values in a "properties" key.
+        This function hoists those properties up to the root to match JSON-LD style.
+
+        Transformation Example:
+        -----------------------
+        Input (Microdata structure):
+        {
+            "type": "http://schema.org/Product",
+            "properties": {
+                "name": "Widget",
+                "offers": {
+                    "type": "http://schema.org/Offer",
+                    "properties": { "price": "10.00" }
+                }
+            }
+        }
+
+        Output (Normalized/Hoisted):
+        {
+            "@type": ["product"],
+            "name": "Widget",
+            "offers": {
+                "price": "10.00"  <-- Note: nested objects are also recursively fixed
+            }
+        }
+        """
+        return {
+            "@type": normalize_type_strings(item.get("type")),
+            **self._convert_microdata_value(item.get("properties", {})),
+        }
+
+    def _convert_microdata_value(self, val: Any) -> Any:
+        """
+        Recursively unwraps 'properties' dicts found inside Microdata values.
+        """
+        if isinstance(val, list):
+            return [self._convert_microdata_value(v) for v in val]
+
+        if isinstance(val, dict):
+            # Hoist contents of 'properties' if present, otherwise use dict as-is
+            props = val.get("properties") or val
+            return {
+                k: self._convert_microdata_value(
+                    v[0] if isinstance(v, list) and v else v
+                )
+                for k, v in props.items()
+            }
+        return val
 
 
-GTIN_KEYS = ("gtin13", "gtin14", "gtin", "gtin8", "ean", "isbn")
+# ---------------------------------------------------------------------------
+# Product Candidate
+# ---------------------------------------------------------------------------
+class ProductCandidate:
+    """
+    Wraps a normalized dictionary to provide heuristic extraction methods
+    exposed as properties.
+    """
 
+    def __init__(self, raw: dict[str, Any]):
+        self.raw = raw
+        self.offers = [o for o in ensure_list(raw.get("offers")) if isinstance(o, dict)]
 
-def _extract_ean_from_product(prod: dict[str, Any]) -> str | None:
-    """Finds EAN/GTIN in product or its offers."""
+    @property
+    def title(self) -> str | None:
+        """Extracts the product name."""
+        return get_first_nonempty(self.raw.get("name"))
 
-    # Check top-level
-    for key in GTIN_KEYS:
-        if val := prod.get(key):
+    @property
+    def description(self) -> str | None:
+        """Extracts the product description."""
+        return get_first_nonempty(self.raw.get("description"))
+
+    @property
+    def mpn(self) -> str | None:
+        """
+        Locates the Manufacturer Part Number (MPN).
+        Checks the explicit 'mpn' field first, then searches through generic
+        'identifier' lists for properties labeled 'mpn'.
+        """
+        # Check explicit field first
+        val = self.raw.get("mpn")
+        if val:
             return str(val)
 
-    # Check offers
-    offers = ensure_list(prod.get("offers"))
-    for o in offers:
-        if not isinstance(o, dict):
-            continue
-        for key in GTIN_KEYS:
-            if val := o.get(key):
-                return str(val)
-
-    # Check complex identifiers (PropertyValue)
-    identifiers = ensure_list(prod.get("identifier") or prod.get("additionalProperty"))
-    for ident in identifiers:
-        if isinstance(ident, dict):
-            pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
-            val = ident.get("value")
-
-            # If the property name looks like EAN/GTIN
-            if any(k in pid for k in GTIN_KEYS) and val:
-                return str(val)
-
-            # Check keys inside the identifier object itself
-            for k in GTIN_KEYS:
-                if v := ident.get(k):
-                    return str(v)
-
-    return None
-
-
-def _is_active_check(
-    prod: dict[str, Any],
-    offer: dict[str, Any] | None,
-    price: Decimal | None,
-) -> bool:
-    """Determines if product is buyable based on stock, dates, and price."""
-
-    # 1. Check Availability Strings
-    # Prefer offer availability, fallback to product
-    avail_raw = (offer.get("availability") if offer else None) or prod.get(
-        "availability"
-    )
-    if avail_raw:
-        # Schema.org URLs often look like http://schema.org/InStock
-        token = str(avail_raw).split("/")[-1].lower()
-        if any(
-            x in token for x in ("outofstock", "soldout", "discontinued", "unavailable")
+        # Fallback: Many sites hide MPN inside a generic "identifier" list.
+        # Structure: [{"@type": "PropertyValue", "propertyID": "mpn", "value": "123"}]
+        for ident in ensure_list(
+            self.raw.get("identifier") or self.raw.get("additionalProperty")
         ):
-            return False
-        if any(x in token for x in ("instock", "in_stock", "available")):
-            return True
-
-    # 2. Check Dates (validFrom / validThrough)
-    now = datetime.now(timezone.utc)
-
-    def get_date(k: str) -> datetime | None:
-        return parse_iso_date((offer.get(k) if offer else None) or prod.get(k))
-
-    valid_from = get_date("validFrom")
-    valid_through = get_date("validThrough") or get_date("priceValidUntil")
-
-    if valid_from and now < valid_from:
-        return False
-    if valid_through and now > valid_through:
-        return False
-
-    # 3. Fallback: If we have a price > 0, assume active
-    if price is not None and price > 0:
-        return True
-
-    # Default to False if ambiguous
-    return False
-
-
-def _extract_from_extruct_data(data: dict[str, Any], url: str) -> Product | None:
-    """Finds the best matching Product node from extracted metadata."""
-
-    candidates: list[dict[str, Any]] = []
-
-    # 1. Collect JSON-LD candidates
-    for entry in ensure_list(data.get("json-ld", [])):
-        nodes = _flatten_jsonld_graph(entry)
-        for node in nodes:
-            # Normalize type for consistent checking
-            node["@type"] = _normalize_type_strings(
-                node.get("@type") or node.get("type")
-            )
-            candidates.append(node)
-
-    # 2. Collect Microdata candidates
-    for item in ensure_list(data.get("microdata", [])):
-        if isinstance(item, dict):
-            candidates.append(_normalize_microdata_item(item))
-
-    # 3. Filter for Products
-    product_candidates: list[dict[str, Any]] = []
-    for c in candidates:
-        types = c.get("@type", [])
-        if any("product" in t for t in types):
-            product_candidates.append(c)
-
-    # 4. Fallback: Look for items with prices/offers even if not strictly typed "Product"
-    if not product_candidates:
-        for c in candidates:
-            if c.get("offers") or c.get("sku") or c.get("mpn"):
-                product_candidates.append(c)
-
-    if not product_candidates:
+            if isinstance(ident, dict):
+                pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
+                if pid in ("mpn", "manufacturer part number"):
+                    return str(ident.get("value"))
         return None
 
-    # 5. Score Candidates to find the "Main" product
-    def candidate_score(p: dict[str, Any]) -> int:
-        score = 0
-        if p.get("name"):
-            score += 5
-        if p.get("offers"):
-            score += 5
-        if p.get("image"):
-            score += 1
-        if p.get("description"):
-            score += 1
-        return -score  # Use negative for min() to pick highest score
+    @property
+    def best_offer(self) -> dict[str, Any]:
+        """
+        Selects the single most relevant offer from the list of offers.
 
-    best_prod = min(product_candidates, key=candidate_score)
+        Selection Logic:
+        1. Availability: InStock > OutOfStock > PreOrder > Unknown.
+        2. Price presence: Offers with a price are preferred over those without.
+        """
+        if not self.offers:
+            return {}
 
-    # 6. Extract Fields
-    title = _get_first_nonempty(
-        best_prod.get("name"),
-        best_prod.get("title"),
-        best_prod.get("headline"),
-    )
-
-    offers = ensure_list(best_prod.get("offers"))
-    chosen_offer = _choose_offer(offers)
-
-    # Price Extraction
-    price_val = None
-    currency = None
-
-    # Try offer first
-    if chosen_offer:
-        price_val = parse_price(
-            _get_first_nonempty(
-                chosen_offer.get("price"),
-                chosen_offer.get("priceAmount"),
-                chosen_offer.get("amount"),
-                chosen_offer.get("lowPrice"),  # For ranges, take low
+        def score(o: dict[str, Any]) -> tuple[int, int]:
+            avail = str(o.get("availability") or "").lower()
+            # 0 = Best (InStock), 2 = Worst (OutOfStock/SoldOut), 1 = Unknown
+            avail_score = (
+                0
+                if "instock" in avail
+                else (2 if any(x in avail for x in ("outofstock", "soldout")) else 1)
             )
-        )
-        currency = _get_first_nonempty(
-            chosen_offer.get("priceCurrency"),
-            chosen_offer.get("currency"),
+            # Tie-breaker: Prefer offers that actually have a price (0) over those that don't (1)
+            return avail_score, (0 if o.get("price") else 1)
+
+        return min(self.offers, key=score)
+
+    @property
+    def price(self) -> Decimal | None:
+        """
+        Extracts the numeric price from the best available offer.
+        Checks both the direct 'price' field and nested 'priceSpecification' objects.
+        """
+        offer = self.best_offer
+        # Some schemas put price in 'priceSpecification' object
+        price_spec = offer.get("priceSpecification") or {}
+
+        raw_price = get_first_nonempty(offer.get("price"), price_spec.get("price"))
+        return parse_price(raw_price)
+
+    @property
+    def currency(self) -> str | None:
+        """
+        Extracts the currency code (e.g., 'USD', 'EUR') from the best available offer.
+        """
+        offer = self.best_offer
+        price_spec = offer.get("priceSpecification") or {}
+        return get_first_nonempty(
+            offer.get("priceCurrency"), price_spec.get("priceCurrency")
         )
 
-    # Fallback to product
-    if price_val is None:
-        price_val = parse_price(
-            _get_first_nonempty(
-                best_prod.get("price"),
-                best_prod.get("priceAmount"),
-            )
+    @property
+    def ean(self) -> str | None:
+        """
+        Searches for a Global Trade Item Number (GTIN/EAN/ISBN).
+
+        Search Order:
+        1. Explicit keys (gtin, ean, isbn) in the root product object.
+        2. Explicit keys in the best offer object.
+        3. Generic 'identifier' or 'additionalProperty' lists.
+        """
+        # Search for GTINs in the product root AND the selected offer
+        sources = [self.raw] + ([self.best_offer] if self.offers else [])
+        for source in sources:
+            for k in GTIN_KEYS:
+                if val := source.get(k):
+                    return str(val)
+
+        # Fallback: Check generic identifiers
+        for ident in ensure_list(
+            self.raw.get("identifier") or self.raw.get("additionalProperty")
+        ):
+            if isinstance(ident, dict):
+                pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
+                if any(k in pid for k in ("gtin", "ean", "isbn")):
+                    return str(ident.get("value"))
+        return None
+
+    @property
+    def is_active(self) -> bool:
+        """
+        Determines if the product is currently buyable.
+
+        Heuristics:
+        1. Checks explicit strings (e.g., 'OutOfStock', 'Discontinued').
+        2. Checks 'validFrom' and 'validThrough' date ranges against current UTC time.
+        3. Checks if a valid price (> 0) is currently detectable.
+        """
+        offer = self.best_offer
+        token = str(offer.get("availability") or "").split("/")[-1].lower()
+
+        # 1. Explicit Flags
+        if any(x in token for x in ("outofstock", "soldout", "discontinued")):
+            return False
+        if any(x in token for x in ("instock", "available")):
+            return True
+
+        # 2. Date ranges (validFrom / validThrough)
+        now = datetime.now(timezone.utc)
+        vf = parse_iso_date(offer.get("validFrom") or self.raw.get("validFrom"))
+        vt = parse_iso_date(
+            offer.get("validThrough")
+            or offer.get("priceValidUntil")
+            or self.raw.get("validThrough")
         )
 
-    if currency is None:
-        currency = _get_first_nonempty(
-            best_prod.get("priceCurrency"),
-            best_prod.get("currency"),
-        )
+        if vf and now < vf:
+            return False
+        if vt and now > vt:
+            return False
 
-    return Product(
-        url=url,
-        title=title or "",  # Pydantic requires string, handle empty later if needed
-        description=_get_first_nonempty(best_prod.get("description")),
-        price=price_val,
-        currency=currency,
-        ean=_extract_ean_from_product(best_prod),
-        mpn=_get_first_nonempty(best_prod.get("mpn")),  # SKU is often used as MPN
-        is_active=_is_active_check(best_prod, chosen_offer, price_val),
-    )
+        # 3. Fallback: If there is a valid price, assume it is active.
+        return bool(self.price and self.price > 0)
+
+
+# ---------------------------------------------------------------------------
+# Product Extractor & API
+# ---------------------------------------------------------------------------
+class ProductExtractor:
+    def __init__(self):
+        self.normalizer = SchemaNormalizer()
+
+    def extract_from_html(self, html: str, url: str) -> ProductCandidate | None:
+        # extruct extracts raw JSON-LD and Microdata
+        data = extruct.extract(
+            html, base_url=url, syntaxes=["json-ld", "microdata"], errors="ignore"
+        )
+        candidates = self.normalizer.collect_candidates(data)
+
+        # Filter: Only keep objects where @type contains "product"
+        products = [
+            ProductCandidate(c)
+            for c in candidates
+            if any("product" in t for t in c.get("@type", []))
+        ]
+        if not products:
+            return None
+
+        # Heuristic: Pick the candidate with the most data (Title + Description + Offers)
+        return max(
+            products,
+            key=lambda p: sum(bool(x) for x in (p.title, p.offers, p.description)),
+        )
 
 
 def extract_product(
@@ -341,61 +373,47 @@ def extract_product(
     url: str,
     title: str | None = None,
     description: str | None = None,
-    price: str | Decimal | float | None = None,
+    price: Any = None,
     currency: str | None = None,
     ean: str | None = None,
     mpn: str | None = None,
 ) -> Product | None:
-    """
-    Orchestrates product extraction.
-    1. Extracts schema.org data.
-    2. Overrides with manual arguments.
-    3. Validates final object.
-    """
+    extractor = ProductExtractor()
+    candidate = extractor.extract_from_html(html_content, url)
 
-    # 1. Extruct Extraction
-    extracted_product: Product | None = None
-    try:
-        data = extruct.extract(
-            html_content,
-            base_url=url,
-            syntaxes=["json-ld", "microdata"],
-            errors="ignore",  # Don't crash on bad JSON
-        )
-        extracted_product = _extract_from_extruct_data(data, url=url)
-    except (ValueError, TypeError):
-        # If extruct fails entirely, we proceed with manual overrides only
-        extracted_product = None
+    # Defaults from extraction
+    ext_price = candidate.price if candidate else None
+    ext_curr = candidate.currency if candidate else None
+    ext_ean = candidate.ean if candidate else None
+    ext_mpn = candidate.mpn if candidate else None
 
-    if extracted_product:
-        # Convert to dict, excluding defaults/Nones to allow clean overriding
-        final_values = extracted_product.model_dump(exclude_none=True)
-    else:
-        final_values = {}
+    # Logic note: candidate.is_active relies on extracted data (including price).
+    # If the user supplies a manual `price` override for an item with no
+    # internal price, `candidate.is_active` might return False.
+    # We patch that heuristic here.
+    ext_active = candidate.is_active if candidate else False
 
-    # 2. Apply Overrides
-    # Always ensure URL is present
-    final_values["url"] = url
+    final_price = price or ext_price
 
-    if title:
-        final_values["title"] = title
-    if description:
-        final_values["description"] = description
-    if price:
-        final_values["price"] = price
-    if currency:
-        final_values["currency"] = currency
-    if ean:
-        final_values["ean"] = ean
-    if mpn:
-        final_values["mpn"] = mpn
+    # If we have a final price but the candidate thought it was inactive
+    # strictly due to missing price, force it active.
+    if not ext_active and final_price and candidate and not ext_price:
+        # Re-check active logic assuming price is valid
+        ext_active = True
 
-    # 3. Check Validity (Minimum viable product needs a title)
-    if not final_values.get("title"):
-        return None
+    # Merge extracted data with optional manual overrides
+    data = {
+        "url": url,
+        "title": title or (candidate.title if candidate else None),
+        "description": description or (candidate.description if candidate else None),
+        "price": final_price,
+        "currency": currency or ext_curr,
+        "ean": ean or ext_ean,
+        "mpn": mpn or ext_mpn,
+        "is_active": ext_active,
+    }
 
     try:
-        return Product(**final_values)
-    except ValidationError:
-        # Log this in a real system
+        return Product(**data)
+    except (ValidationError, ValueError):
         return None
