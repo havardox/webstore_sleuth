@@ -1,0 +1,13 @@
+services:
+  webstore_sleuth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webstore_sleuth
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/usr/src/app
+    env_file:
+      - .env

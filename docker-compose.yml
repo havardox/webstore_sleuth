@@ -1,0 +1,3 @@
+include:
+  - path: ./webstore_sleuth_python/docker-compose.yml
+  - path: ./webstore_sleuth_scrapoxy/docker-compose.yml
