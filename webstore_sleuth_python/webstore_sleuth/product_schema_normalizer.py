@@ -1,11 +1,6 @@
-from typing import Any, Dict, List, Generator, Union
+from typing import Any, Dict, List, Generator
 
-
-# Mocking the external dependency for portability
-def ensure_list(item: Any) -> List[Any]:
-    if item is None:
-        return []
-    return item if isinstance(item, list) else [item]
+from webstore_sleuth.utils.converters import ensure_list
 
 
 class SchemaNormalizer:
