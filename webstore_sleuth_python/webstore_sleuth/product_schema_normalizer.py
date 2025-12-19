@@ -6,8 +6,6 @@ def ensure_list(item: Any) -> List[Any]:
     if item is None:
         return []
     return item if isinstance(item, list) else [item]
-
-
 class SchemaNormalizer:
     """
     Normalizer for structured data (JSON-LD & Microdata).
