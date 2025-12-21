@@ -94,7 +94,9 @@ class ScrapyImpersonateSessionMiddleware:
             # Failsafe: If filtering left us empty (shouldn't happen unless config is tiny),
             # revert to full pool to keep the request alive.
             if not candidates:
-                logger.warning("No alternative identities available for retry. Reusing pool.")
+                logger.warning(
+                    "No alternative identities available for retry. Reusing pool."
+                )
                 candidates = self.pool
 
         # 4. Selection & Assignment

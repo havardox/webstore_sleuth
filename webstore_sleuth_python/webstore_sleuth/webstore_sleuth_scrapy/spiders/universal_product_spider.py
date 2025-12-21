@@ -18,7 +18,6 @@ class UniversalProductSpider(scrapy.Spider):
         self.domain_counts = {}
 
     def start_requests(self):
-        
         for site in self.sites:
             for url, category_meta in site.category_urls.items():
                 if isinstance(site, StaticSite):
@@ -35,17 +34,16 @@ class UniversalProductSpider(scrapy.Spider):
                     raise ValueError("Invalid Site type for ScrapyScraper")
 
     def parse_category(self, response):
-        
         site: StaticSite = response.meta["site_config"]
         category_meta = response.meta["category_meta"]
 
         # 1. Extract links to individual product pages from the category listing
         product_links = self._extract_links(response, site.product_page_xpath)
         logging.info("This should appear")
-        
+
         if not product_links:
             logging.info(f"No product links found on {response.url}")
-            
+
             # CHECK: Only save debug HTML if this is the first page of the category
             # (prev is None implies it's the start request for this category)
             if response.meta.get("prev") is None:
@@ -117,16 +115,16 @@ class UniversalProductSpider(scrapy.Spider):
             os.makedirs(folder, exist_ok=True)
 
             domain = urlparse(response.url).netloc
-            
+
             # Determine the next number (N) for this domain
             next_n = self._get_next_file_number(folder, domain)
-            
+
             # Construct filename: debug/domain_N.html
             filename = os.path.join(folder, f"{domain}_{next_n}.html")
 
             with open(filename, "wb") as f:
                 f.write(response.body)
-            
+
             self.logger.info(f"Saved debug HTML (First Page No Results) to {filename}")
 
         except Exception as e:
@@ -145,14 +143,14 @@ class UniversalProductSpider(scrapy.Spider):
         # Otherwise, scan the debug folder to find the highest existing N
         max_n = 0
         prefix = f"{domain}_"
-        
+
         try:
             # List all files in debug folder
             for fname in os.listdir(folder):
                 if fname.startswith(prefix):
                     # Extract the part after "domain_"
-                    suffix = fname[len(prefix):]
-                    
+                    suffix = fname[len(prefix) :]
+
                     # Remove extension (e.g., .html) to get the number
                     if "." in suffix:
                         number_part = suffix.split(".")[0]
