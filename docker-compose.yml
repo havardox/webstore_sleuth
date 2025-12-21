@@ -1,3 +1,11 @@
-include:
-  - path: ./webstore_sleuth_python/docker-compose.yml
-  - path: ./webstore_sleuth_scrapoxy/docker-compose.yml
+services:
+  webstore_sleuth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webstore_sleuth
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/usr/src/app
