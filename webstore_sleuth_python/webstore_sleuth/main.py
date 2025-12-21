@@ -15,8 +15,6 @@ def main():
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
-    logger.info("This WILL appear.")
-
     alternate_be = StaticSite(
         category_urls={
             "https://www.alternate.be/CPUs": {"category": "cpu"},
@@ -115,7 +113,7 @@ def main():
                 "category": "amazon_de_rtx_1070"
             },
         },
-        product_page_xpath="//div[contains(@class, 's-product-image-container')]//a",
+        product_page_xpath="//div[@data-component-type='s-search-result']//h2/ancestor::a",
         next_page_xpath="//a[contains(@class, 's-pagination-next')]",
         title_xpath="//span[@id='productTitle']//text()",
     )
@@ -123,8 +121,8 @@ def main():
     # 2. Initialize Scraper
     # We pass all sites to the Scrapy implementation.
     # It will run a single reactor and crawl them concurrently based on Scrapy settings.
-    sites_to_crawl = [alternate_be, alternate_de, arlt_com, cybertek_fr, jacob_de]
-    # sites_to_crawl = [amazon_de]
+    # sites_to_crawl = [alternate_be, alternate_de, arlt_com, cybertek_fr, jacob_de]
+    sites_to_crawl = [amazon_de]
 
     # You can instantiate multiple different scraper types here if needed (e.g. Selenium)
     scrapy_scraper = ScrapyScraper(sites=sites_to_crawl)

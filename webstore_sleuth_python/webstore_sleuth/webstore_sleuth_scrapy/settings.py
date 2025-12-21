@@ -7,21 +7,11 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
-import os
-
 BOT_NAME = "webstore_sleuth_scrapy"
 
 SPIDER_MODULES = ["webstore_sleuth_scrapy.spiders"]
 NEWSPIDER_MODULE = "webstore_sleuth_scrapy.spiders"
 CONCURRENT_REQUESTS = 1000
-ADDONS = {
-    "scrapoxy.Addon": 100,
-}
-
-SCRAPOXY_MASTER = os.getenv("SCRAPOXY_MASTER")
-SCRAPOXY_API = os.getenv("SCRAPOXY_API")
-SCRAPOXY_USERNAME = os.getenv("SCRAPOXY_USERNAME")
-SCRAPOXY_PASSWORD = os.getenv("SCRAPOXY_PASSWORD")
 
 SCRAPOXY_WAIT_FOR_PROXIES = True
 SCRAPOXY_MODE_START = "HOT"
@@ -31,13 +21,10 @@ SCRAPOXY_PROXIES_CHECK = 20  # Default is 10 seconds
 
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
-DOWNLOAD_HANDLERS = {
-    "http": "scrapy_impersonate.ImpersonateDownloadHandler",
-    "https": "scrapy_impersonate.ImpersonateDownloadHandler",
-}
 
 DOWNLOADER_MIDDLEWARES = {
-    "scrapy_impersonate.RandomBrowserMiddleware": 1,
+    "webstore_sleuth_scrapy.middlewares.ScrapyImpersonateSessionMiddleware": 100,
+    "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": 200,
 }
 
 USER_AGENT = None
@@ -50,7 +37,9 @@ ROBOTSTXT_OBEY = False
 
 
 # Disable cookies (enabled by default)
-COOKIES_ENABLED = False
+COOKIES_ENABLED = True
+
+COOKIES_DEBUG = True
 
 # Disable Telnet Console (enabled by default)
 TELNETCONSOLE_ENABLED = False
@@ -104,3 +93,27 @@ URLLENGTH_LIMIT = 4096
 
 # Set settings whose default value is deprecated to a future-proof value
 FEED_EXPORT_ENCODING = "utf-8"
+
+
+PROXIES = [
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8020",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8019",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8018",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8017",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8016",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8015",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8014",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8013",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8012",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8011",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8010",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8009",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8008",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8007",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8006",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8005",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8004",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8003",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8002",
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8001"
+]
