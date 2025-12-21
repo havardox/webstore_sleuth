@@ -115,5 +115,5 @@ PROXIES = [
     "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8004",
     "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8003",
     "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8002",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8001"
+    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8001",
 ]
