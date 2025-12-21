@@ -31,6 +31,9 @@ class ScrapyImpersonateSessionMiddleware:
         if not self.proxies:
             self.proxies = [None]
 
+        # Optimization Flag: Determine if we have the physical capability to rotate IPs
+        self.has_multiple_proxies = len(self.proxies) > 1
+
         # 1. Cartesian Product: Create every possible combination
         # This maximizes the entropy of your scraper fingerprints.
         self.pool: list[tuple[str, str | None]] = list(
@@ -61,31 +64,38 @@ class ScrapyImpersonateSessionMiddleware:
         # If assigned this turn, or manually set by user (and not a retry rotation), skip.
         if assigned_at == current_retry:
             return
+
+        # If user set it manually in start_requests, treat as sticky for run 0
         if manual_impersonate and "_impersonate_assigned_at" not in request.meta:
-            # User set it manually in start_requests, treat as sticky for run 0
             request.meta["_impersonate_assigned_at"] = 0
             self._set_cookie_jar(request, manual_impersonate, request.meta.get("proxy"))
             return
 
-        # 3. Intelligent Selection
+        # 3. Intelligent Selection Strategy
         candidates = self.pool
 
         # Filtering logic on retry
         if current_retry > 0:
-            prev_browser = request.meta.get("impersonate")
             prev_proxy = request.meta.get("proxy")
+            prev_browser = request.meta.get("impersonate")
 
-            # Exclude the exact pair that failed
-            filtered = [p for p in self.pool if p != (prev_browser, prev_proxy)]
-
-            if filtered:
-                candidates = filtered
-                logger.debug(
-                    f"Retry {current_retry} for {request.url}: Rotating identity. "
-                    f"Dropped ({prev_browser}, {prev_proxy})"
-                )
+            if self.has_multiple_proxies:
+                # STRATEGY A: Force IP Rotation
+                # If we have multiple proxies, the priority is to change the IP address.
+                # We don't care about the browser (it will be random).
+                candidates = [p for p in self.pool if p[1] != prev_proxy]
+                logger.debug(f"Retry {current_retry}: Rotating Proxy (IP change).")
             else:
-                logger.warning("No alternative identities available for retry.")
+                # STRATEGY B: Force Browser Rotation
+                # If we are Local or have only 1 Proxy, we MUST change the TLS fingerprint/Browser.
+                candidates = [p for p in self.pool if p[0] != prev_browser]
+                logger.debug(f"Retry {current_retry}: Rotating Browser (IP locked).")
+
+            # Failsafe: If filtering left us empty (shouldn't happen unless config is tiny),
+            # revert to full pool to keep the request alive.
+            if not candidates:
+                logger.warning("No alternative identities available for retry. Reusing pool.")
+                candidates = self.pool
 
         # 4. Selection & Assignment
         browser, proxy = random.choice(candidates)
