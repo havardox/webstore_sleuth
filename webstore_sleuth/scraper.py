@@ -1,3 +1,6 @@
+"""
+Defines the Scraper protocol and generic crawling utilities.
+"""
 from typing import Protocol, Iterator, Iterable, Sequence
 from webstore_sleuth.schemas import Product, BaseSite
 

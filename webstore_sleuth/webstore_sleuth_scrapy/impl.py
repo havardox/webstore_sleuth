@@ -42,7 +42,7 @@ class ScrapyScraper(Scraper):
         crawler.signals.connect(self._on_item_scraped, signal=signals.item_scraped)
         process.crawl(crawler, sites=self.sites)
 
-        # CHANGED: Explicitly disable signal handlers to avoid threading error
+        # Explicitly disables signal handlers to prevent threading errors
         process.start(install_signal_handlers=False)
 
         self._results_queue.put(None)
@@ -51,7 +51,7 @@ class ScrapyScraper(Scraper):
         self._results_queue.put(item)
 
     def _to_product(self, item: Any) -> Product:
-        # Item comes back as a dict from the spider (via model_dump)
+        # Converts the item (dict) from the spider into a Product object
         if isinstance(item, dict):
             return Product(**item)
         if isinstance(item, Product):

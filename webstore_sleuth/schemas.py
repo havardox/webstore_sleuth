@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator, StringConstraints, Confi
 
 from webstore_sleuth.utils.converters import parse_price
 
-# Enforce stripped strings to avoid database pollution
+# Enforces stripped strings to ensure clean data
 StrippedString = Annotated[str, StringConstraints(strip_whitespace=True)]
 
 
@@ -20,7 +20,7 @@ class Product(BaseModel):
     mpn: StrippedString | None = None
     is_active: bool | None = None
 
-    # Always use UTC for system timestamps
+    # Uses UTC for system timestamps
     scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     meta: Dict[str, Any] = Field(default_factory=dict)
@@ -30,7 +30,7 @@ class Product(BaseModel):
     @field_validator("price", mode="before")
     @classmethod
     def validate_price(cls, v: Any) -> Decimal | None:
-        # parse_price now returns None safely on failure
+        # parse_price returns None safely on failure
         return parse_price(v)
 
 

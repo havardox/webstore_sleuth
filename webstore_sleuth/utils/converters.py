@@ -1,5 +1,5 @@
-# Compiling regex globally is correct.
-# Optimized to capture the widest possible numeric context.
+# Compiles regex globally for efficiency.
+# Captures the widest possible numeric context for parsing.
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import re
@@ -109,6 +109,7 @@ def parse_iso_date(s: str | None) -> datetime | None:
 
 
 def ensure_list(v: Any) -> list[Any]:
+    """Ensures the input value is returned as a list."""
     if v is None:
         return []
     if isinstance(v, list):

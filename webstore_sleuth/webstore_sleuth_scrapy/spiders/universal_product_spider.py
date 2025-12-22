@@ -32,7 +32,7 @@ class UniversalProductSpider(scrapy.Spider):
         site: StaticSite = response.meta["site_config"]
         category_meta = response.meta["category_meta"]
 
-        # 1. Extract links to individual product pages from the category listing
+        # Extracts links to individual product pages from the category listing
         product_links = self._extract_links(response, site.product_page_xpath)
         logging.info("This should appear")
         if not product_links:
@@ -46,7 +46,7 @@ class UniversalProductSpider(scrapy.Spider):
                 meta={"site_config": site, "category_meta": category_meta},
             )
 
-        # 2. Extract pagination links to next category page
+        # Extracts pagination links to the next category page
         next_links = self._extract_links(response, site.next_page_xpath)
         if not next_links:
             logging.debug(f"No pagination links found on {response.url}")
@@ -73,7 +73,7 @@ class UniversalProductSpider(scrapy.Spider):
         ean = self._extract_xpath(response, site.ean_xpath)
         mpn = self._extract_xpath(response, site.mpn_xpath)
 
-        # Now returns Product | None
+        # Extracts a Product object or returns None if extraction fails
         product = extract_product(
             html_content=response.text,
             url=response.url,
@@ -99,6 +99,7 @@ class UniversalProductSpider(scrapy.Spider):
         yield product_dict
 
     def _extract_links(self, response, xpath: str) -> list[str]:
+        """Extracts unique absolute URLs using the provided XPath."""
         if not xpath:
             return []
 
@@ -127,6 +128,7 @@ class UniversalProductSpider(scrapy.Spider):
         return uniq
 
     def _extract_xpath(self, response, xpath: str) -> str | None:
+        """Extracts the first string value matching the XPath, or None."""
         if not xpath:
             return None
         value = response.xpath(xpath).get()

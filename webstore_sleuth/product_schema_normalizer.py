@@ -1,3 +1,7 @@
+"""
+Normalizes structured data (JSON-LD and Microdata) into a consistent
+dictionary format for downstream extraction.
+"""
 from typing import Any, Dict, List, Generator
 
 from webstore_sleuth.utils.converters import ensure_list

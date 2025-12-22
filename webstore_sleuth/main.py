@@ -6,12 +6,12 @@ import logging
 
 
 def main():
-    # 1. Setup YOUR logging (so you can see your stuff)
+    # Configures logging to output info level logs
     logging.basicConfig(
         level=logging.INFO,
     )
 
-    # 3. Now your logger works, and Scrapy is silent
+    # Initializes the logger for the current module
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
@@ -118,17 +118,17 @@ def main():
         title_xpath="//span[@id='productTitle']//text()",
     )
 
-    # 2. Initialize Scraper
-    # We pass all sites to the Scrapy implementation.
-    # It will run a single reactor and crawl them concurrently based on Scrapy settings.
+    # Initializes the Scraper
+    # Passes all sites to the Scrapy implementation.
+    # Runs a single reactor and crawls them concurrently based on Scrapy settings.
     # sites_to_crawl = [alternate_be, alternate_de, arlt_com, cybertek_fr, jacob_de]
     sites_to_crawl = [amazon_de]
 
-    # You can instantiate multiple different scraper types here if needed (e.g. Selenium)
+    # Instantiates the ScrapyScraper (other implementations like Selenium could be used here)
     scrapy_scraper = ScrapyScraper(sites=sites_to_crawl)
 
-    # 3. Run the generic crawl_all function
-    # This iterates over the generator, which blocks until items start flowing in.
+    # Runs the generic crawl_all function
+    # Iterates over the generator, which blocks until items start flowing in.
     logger.info("Starting generic crawl...")
 
     count = 0

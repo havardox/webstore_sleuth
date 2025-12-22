@@ -196,6 +196,10 @@ class ProductCandidate:
 # Product Extractor & API
 # ---------------------------------------------------------------------------
 class ProductExtractor:
+    """
+    Orchestrates the extraction of product data from HTML content using
+    schema normalization and heuristic selection.
+    """
     def __init__(self):
         self.normalizer = SchemaNormalizer()
 
@@ -232,6 +236,10 @@ def extract_product(
     ean: str | None = None,
     mpn: str | None = None,
 ) -> Product | None:
+    """
+    Main entry point for extracting a Product object from HTML.
+    Merges extracted data with optional manual overrides.
+    """
     extractor = ProductExtractor()
     candidate = extractor.extract_from_html(html_content, url)
 

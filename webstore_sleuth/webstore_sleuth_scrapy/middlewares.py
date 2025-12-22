@@ -31,11 +31,11 @@ class ScrapyImpersonateSessionMiddleware:
         if not self.proxies:
             self.proxies = [None]
 
-        # Optimization Flag: Determine if we have the physical capability to rotate IPs
+        # Optimization Flag: Determines if IP rotation is possible based on proxy count
         self.has_multiple_proxies = len(self.proxies) > 1
 
-        # 1. Cartesian Product: Create every possible combination
-        # This maximizes the entropy of your scraper fingerprints.
+        # Cartesian Product: Creates every possible combination of browser and proxy
+        # to maximize the entropy of scraper fingerprints.
         self.pool: list[tuple[str, str | None]] = list(
             itertools.product(self.browsers, self.proxies)
         )
@@ -50,18 +50,18 @@ class ScrapyImpersonateSessionMiddleware:
         return cls(crawler.settings)
 
     def process_request(self, request: Request, spider: Spider) -> None:
-        # 1. Respect standard Scrapy exclusion
+        # Respects standard Scrapy exclusion
         if request.meta.get("dont_impersonate"):
             return
 
-        # 2. Check for manual overrides or sticky retry sessions
-        # If the user manually set a browser in the spider, we respect it
-        # UNLESS this is a retry where we need to rotate to a new identity.
+        # Checks for manual overrides or sticky retry sessions
+        # Respects manually set browser in the spider,
+        # unless this is a retry where rotation to a new identity is required.
         manual_impersonate = request.meta.get("impersonate")
         current_retry = request.meta.get("retry_times", 0)
         assigned_at = request.meta.get("_impersonate_assigned_at")
 
-        # If assigned this turn, or manually set by user (and not a retry rotation), skip.
+        # Skips if assigned this turn or manually set (unless rotating for retry).
         if assigned_at == current_retry:
             return
 
@@ -71,7 +71,7 @@ class ScrapyImpersonateSessionMiddleware:
             self._set_cookie_jar(request, manual_impersonate, request.meta.get("proxy"))
             return
 
-        # 3. Intelligent Selection Strategy
+        # Selects an identity based on retry logic
         candidates = self.pool
 
         # Filtering logic on retry
@@ -80,14 +80,14 @@ class ScrapyImpersonateSessionMiddleware:
             prev_browser = request.meta.get("impersonate")
 
             if self.has_multiple_proxies:
-                # STRATEGY A: Force IP Rotation
-                # If we have multiple proxies, the priority is to change the IP address.
-                # We don't care about the browser (it will be random).
+                # Strategy A: Forces IP Rotation
+                # If multiple proxies are available, priority is to change the IP address.
+                # The browser is selected randomly.
                 candidates = [p for p in self.pool if p[1] != prev_proxy]
                 logger.debug(f"Retry {current_retry}: Rotating Proxy (IP change).")
             else:
-                # STRATEGY B: Force Browser Rotation
-                # If we are Local or have only 1 Proxy, we MUST change the TLS fingerprint/Browser.
+                # Strategy B: Forces Browser Rotation
+                # If Local or only 1 Proxy, changes the TLS fingerprint/Browser.
                 candidates = [p for p in self.pool if p[0] != prev_browser]
                 logger.debug(f"Retry {current_retry}: Rotating Browser (IP locked).")
 
@@ -99,7 +99,7 @@ class ScrapyImpersonateSessionMiddleware:
                 )
                 candidates = self.pool
 
-        # 4. Selection & Assignment
+        # Selects and assigns the identity
         browser, proxy = random.choice(candidates)
 
         request.meta["impersonate"] = browser
@@ -114,7 +114,7 @@ class ScrapyImpersonateSessionMiddleware:
                 # Clean up if we switched from a proxy-identity to a local-identity
                 del request.meta["proxy"]
 
-        # 5. Cookie Jar (Session Isolation)
+        # Sets the Cookie Jar for session isolation
         self._set_cookie_jar(request, browser, proxy)
 
     def _set_cookie_jar(
