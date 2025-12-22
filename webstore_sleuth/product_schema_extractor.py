@@ -11,8 +11,10 @@ from webstore_sleuth.utils.converters import (
     parse_iso_date,
     ensure_list,
 )
-from webstore_sleuth.product_schema_normalizer import SchemaNormalizer
-
+from webstore_sleuth.product_schema_normalizer import (
+    SchemaNormalizer, 
+    SchemaEntity
+)
 
 GTIN_KEYS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "ean", "isbn")
 
@@ -23,7 +25,6 @@ GTIN_KEYS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "ean", "isbn")
 def get_first_nonempty(*args) -> str | None:
     """
     Returns the first non-empty string from the arguments.
-    Useful for fallback logic (e.g., check 'price', then 'highPrice').
     """
     for a in args:
         if isinstance(a, str) and a.strip():
@@ -38,55 +39,69 @@ def get_first_nonempty(*args) -> str | None:
 # ---------------------------------------------------------------------------
 class ProductCandidate:
     """
-    Wraps a normalized dictionary to provide heuristic extraction methods
-    exposed as properties.
+    Wraps a SchemaEntity to provide heuristic extraction methods.
+    Handles the discrepancy between JSON-LD (nested dicts) and Microdata
+    (nested SchemaEntities) via the _unwrap helper.
     """
 
-    def __init__(self, raw: dict[str, Any]):
-        self.raw = raw
-        self.offers = [o for o in ensure_list(raw.get("offers")) if isinstance(o, dict)]
+    def __init__(self, entity: SchemaEntity):
+        self.entity = entity
+        self.props = entity.properties  # Shortcut to the data payload
+        
+        # Normalize offers list: unwrap SchemaEntities back to dicts for uniform handling
+        raw_offers = ensure_list(self.props.get("offers"))
+        self.offers = [
+            self._unwrap(o) for o in raw_offers if isinstance(o, (dict, SchemaEntity))
+        ]
+
+    @staticmethod
+    def _unwrap(item: Any) -> dict[str, Any]:
+        """
+        Helper to extract the dictionary payload from a nested item, 
+        whether it is a raw dict or a SchemaEntity.
+        """
+        if isinstance(item, SchemaEntity):
+            return item.properties
+        return item if isinstance(item, dict) else {}
 
     @property
     def title(self) -> str | None:
-        """Extracts the product name."""
-        return get_first_nonempty(self.raw.get("name"))
+        return get_first_nonempty(self.props.get("name"))
 
     @property
     def description(self) -> str | None:
-        """Extracts the product description."""
-        return get_first_nonempty(self.raw.get("description"))
+        return get_first_nonempty(self.props.get("description"))
 
     @property
     def mpn(self) -> str | None:
         """
         Locates the Manufacturer Part Number (MPN).
-        Checks the explicit 'mpn' field first, then searches through generic
-        'identifier' lists for properties labeled 'mpn'.
         """
         # Check explicit field first
-        val = self.raw.get("mpn")
+        val = self.props.get("mpn")
         if val:
             return str(val)
 
-        # Fallback: Many sites hide MPN inside a generic "identifier" list.
-        # Structure: [{"@type": "PropertyValue", "propertyID": "mpn", "value": "123"}]
-        for ident in ensure_list(
-            self.raw.get("identifier") or self.raw.get("additionalProperty")
-        ):
-            if isinstance(ident, dict):
-                pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
-                if pid in ("mpn", "manufacturer part number"):
-                    return str(ident.get("value"))
+        # Fallback: generic "identifier" list.
+        # Handle potential nested SchemaEntities in the identifier list
+        raw_identifiers = ensure_list(
+            self.props.get("identifier") or self.props.get("additionalProperty")
+        )
+        
+        for item in raw_identifiers:
+            ident = self._unwrap(item)
+            if not ident: 
+                continue
+
+            pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
+            if pid in ("mpn", "manufacturer part number"):
+                return str(ident.get("value"))
         return None
 
     @property
     def best_offer(self) -> dict[str, Any]:
         """
         Selects the single most relevant offer from the list of offers.
-
-        Selection Logic:
-        1. Availability: InStock > OutOfStock > PreOrder > Unknown.
-        2. Price presence: Offers with a price are preferred over those without.
         """
         if not self.offers:
             return {}
@@ -99,7 +114,7 @@ class ProductCandidate:
                 if "instock" in avail
                 else (2 if any(x in avail for x in ("outofstock", "soldout")) else 1)
             )
-            # Tie-breaker: Prefer offers that actually have a price (0) over those that don't (1)
+            # Prefer offers that actually have a price (0) over those that don't (1)
             return avail_score, (0 if o.get("price") else 1)
 
         return min(self.offers, key=score)
@@ -108,22 +123,18 @@ class ProductCandidate:
     def price(self) -> Decimal | None:
         """
         Extracts the numeric price from the best available offer.
-        Checks both the direct 'price' field and nested 'priceSpecification' objects.
         """
         offer = self.best_offer
-        # Some schemas put price in 'priceSpecification' object
-        price_spec = offer.get("priceSpecification") or {}
+        # Handle priceSpecification if it is a nested object/entity
+        price_spec = self._unwrap(offer.get("priceSpecification"))
 
         raw_price = get_first_nonempty(offer.get("price"), price_spec.get("price"))
         return parse_price(raw_price)
 
     @property
     def currency(self) -> str | None:
-        """
-        Extracts the currency code (e.g., 'USD', 'EUR') from the best available offer.
-        """
         offer = self.best_offer
-        price_spec = offer.get("priceSpecification") or {}
+        price_spec = self._unwrap(offer.get("priceSpecification"))
         return get_first_nonempty(
             offer.get("priceCurrency"), price_spec.get("priceCurrency")
         )
@@ -132,38 +143,32 @@ class ProductCandidate:
     def ean(self) -> str | None:
         """
         Searches for a Global Trade Item Number (GTIN/EAN/ISBN).
-
-        Search Order:
-        1. Explicit keys (gtin, ean, isbn) in the root product object.
-        2. Explicit keys in the best offer object.
-        3. Generic 'identifier' or 'additionalProperty' lists.
         """
         # Search for GTINs in the product root AND the selected offer
-        sources = [self.raw] + ([self.best_offer] if self.offers else [])
+        sources = [self.props] + ([self.best_offer] if self.offers else [])
         for source in sources:
             for k in GTIN_KEYS:
                 if val := source.get(k):
                     return str(val)
 
         # Fallback: Check generic identifiers
-        for ident in ensure_list(
-            self.raw.get("identifier") or self.raw.get("additionalProperty")
-        ):
-            if isinstance(ident, dict):
-                pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
-                if any(k in pid for k in ("gtin", "ean", "isbn")):
-                    return str(ident.get("value"))
+        raw_identifiers = ensure_list(
+            self.props.get("identifier") or self.props.get("additionalProperty")
+        )
+        for item in raw_identifiers:
+            ident = self._unwrap(item)
+            if not ident:
+                continue
+
+            pid = str(ident.get("propertyID") or ident.get("name") or "").lower()
+            if any(k in pid for k in ("gtin", "ean", "isbn")):
+                return str(ident.get("value"))
         return None
 
     @property
     def is_active(self) -> bool:
         """
         Determines if the product is currently buyable.
-
-        Heuristics:
-        1. Checks explicit strings (e.g., 'OutOfStock', 'Discontinued').
-        2. Checks 'validFrom' and 'validThrough' date ranges against current UTC time.
-        3. Checks if a valid price (> 0) is currently detectable.
         """
         offer = self.best_offer
         token = str(offer.get("availability") or "").split("/")[-1].lower()
@@ -174,14 +179,13 @@ class ProductCandidate:
         if any(x in token for x in ("instock", "available")):
             return True
 
-        # 2. Date ranges (validFrom / validThrough)
+        # 2. Date ranges
         now = datetime.now(timezone.utc)
-        vf = parse_iso_date(offer.get("validFrom") or self.raw.get("validFrom"))
-        vt = parse_iso_date(
-            offer.get("validThrough")
-            or offer.get("priceValidUntil")
-            or self.raw.get("validThrough")
-        )
+        vf = parse_iso_date(offer.get("validFrom") or self.props.get("validFrom"))
+        
+        # 'validThrough' might be in offer, price spec, or root
+        vt_source = offer.get("validThrough") or offer.get("priceValidUntil") or self.props.get("validThrough")
+        vt = parse_iso_date(vt_source)
 
         if vf and now < vf:
             return False
@@ -197,29 +201,30 @@ class ProductCandidate:
 # ---------------------------------------------------------------------------
 class ProductExtractor:
     """
-    Orchestrates the extraction of product data from HTML content using
-    schema normalization and heuristic selection.
+    Orchestrates the extraction of product data using SchemaEntity.
     """
     def __init__(self):
         self.normalizer = SchemaNormalizer()
 
     def extract_from_html(self, html: str, url: str) -> ProductCandidate | None:
-        # extruct extracts raw JSON-LD and Microdata
         data = extruct.extract(
             html, base_url=url, syntaxes=["json-ld", "microdata"], errors="ignore"
         )
+        
+        # Returns list[SchemaEntity]
         candidates = self.normalizer.collect_candidates(data)
 
-        # Filter: Only keep objects where @type contains "product"
+        # Filter: Only keep entities where types contain "product"
         products = [
-            ProductCandidate(c)
-            for c in candidates
-            if any("product" in t for t in c.get("@type", []))
+            ProductCandidate(entity)
+            for entity in candidates
+            if any("product" in t for t in entity.types)
         ]
+        
         if not products:
             return None
 
-        # Heuristic: Pick the candidate with the most data (Title + Description + Offers)
+        # Heuristic: Pick the candidate with the most data
         return max(
             products,
             key=lambda p: sum(bool(x) for x in (p.title, p.offers, p.description)),
@@ -238,32 +243,21 @@ def extract_product(
 ) -> Product | None:
     """
     Main entry point for extracting a Product object from HTML.
-    Merges extracted data with optional manual overrides.
     """
     extractor = ProductExtractor()
     candidate = extractor.extract_from_html(html_content, url)
 
-    # Defaults from extraction
     ext_price = candidate.price if candidate else None
     ext_curr = candidate.currency if candidate else None
     ext_ean = candidate.ean if candidate else None
     ext_mpn = candidate.mpn if candidate else None
-
-    # Logic note: candidate.is_active relies on extracted data (including price).
-    # If the user supplies a manual `price` override for an item with no
-    # internal price, `candidate.is_active` might return False.
-    # We patch that heuristic here.
     ext_active = candidate.is_active if candidate else False
 
     final_price = price or ext_price
 
-    # If we have a final price but the candidate thought it was inactive
-    # strictly due to missing price, force it active.
     if not ext_active and final_price and candidate and not ext_price:
-        # Re-check active logic assuming price is valid
         ext_active = True
 
-    # Merge extracted data with optional manual overrides
     data = {
         "url": url,
         "title": title or (candidate.title if candidate else None),
