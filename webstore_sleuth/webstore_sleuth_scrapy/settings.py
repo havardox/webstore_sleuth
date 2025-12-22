@@ -16,12 +16,6 @@ SPIDER_MODULES = ["webstore_sleuth_scrapy.spiders"]
 NEWSPIDER_MODULE = "webstore_sleuth_scrapy.spiders"
 CONCURRENT_REQUESTS = 1000
 
-SCRAPOXY_WAIT_FOR_PROXIES = True
-SCRAPOXY_MODE_START = "HOT"
-SCRAPOXY_MODE_RESTART = "HOT"
-SCRAPOXY_MODE_STOP = "OFF"
-SCRAPOXY_PROXIES_CHECK = 20  # Default is 10 seconds
-
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
 
