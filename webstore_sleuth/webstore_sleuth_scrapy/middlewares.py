@@ -66,30 +66,26 @@ class ScrapyImpersonateSessionMiddleware:
         # 1. Handle Manual Impersonation (Sticky for Retry 0)
         if manual_impersonate and "_impersonate_assigned_at" not in request.meta:
             request.meta["_impersonate_assigned_at"] = 0
-            
-            # Record the manual choice so it counts as "used" if it fails
-            history.append({
-                "browser": manual_impersonate,
-                "proxy": request.meta.get("proxy"),
-            })
 
-            self._set_cookie_jar(
-                request, manual_impersonate, request.meta.get("proxy")
+            # Record the manual choice so it counts as "used" if it fails
+            history.append(
+                {
+                    "browser": manual_impersonate,
+                    "proxy": request.meta.get("proxy"),
+                }
             )
+
+            self._set_cookie_jar(request, manual_impersonate, request.meta.get("proxy"))
             return
 
         # 2. Determine Used Identities from History
         # We create a set of tuples (browser, proxy) from the history list
-        used_identities = {
-            (item["browser"], item["proxy"]) 
-            for item in history
-        }
+        used_identities = {(item["browser"], item["proxy"]) for item in history}
 
         # 3. Calculate Available Candidates (Pool - Used)
         # Works for both proxy scenarios and local-only (proxy=None) scenarios
         available_candidates = [
-            identity for identity in self.pool 
-            if identity not in used_identities
+            identity for identity in self.pool if identity not in used_identities
         ]
 
         # 4. Abort if exhausted
@@ -113,10 +109,12 @@ class ScrapyImpersonateSessionMiddleware:
         request.meta["_impersonate_assigned_at"] = current_retry
 
         # Record identity usage
-        history.append({
-            "browser": browser,
-            "proxy": proxy,
-        })
+        history.append(
+            {
+                "browser": browser,
+                "proxy": proxy,
+            }
+        )
 
         # Proxy handling
         if not request.meta.get("dont_proxy"):
