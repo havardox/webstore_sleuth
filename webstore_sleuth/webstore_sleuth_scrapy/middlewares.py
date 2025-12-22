@@ -6,6 +6,7 @@ import hashlib
 from scrapy import Spider
 from scrapy.http import Request
 from scrapy.settings import Settings
+from scrapy.exceptions import IgnoreRequest
 from curl_cffi.requests import BrowserType
 
 logger = logging.getLogger(__name__)
@@ -31,11 +32,8 @@ class ScrapyImpersonateSessionMiddleware:
         if not self.proxies:
             self.proxies = [None]
 
-        # Optimization Flag: Determines if IP rotation is possible based on proxy count
-        self.has_multiple_proxies = len(self.proxies) > 1
-
         # Cartesian Product: Creates every possible combination of browser and proxy
-        # to maximize the entropy of scraper fingerprints.
+        # We convert to a set of tuples for easier subtraction operations later
         self.pool: list[tuple[str, str | None]] = list(
             itertools.product(self.browsers, self.proxies)
         )
@@ -50,71 +48,85 @@ class ScrapyImpersonateSessionMiddleware:
         return cls(crawler.settings)
 
     def process_request(self, request: Request, spider: Spider) -> None:
-        # Respects standard Scrapy exclusion
+        # Respect standard Scrapy exclusion
         if request.meta.get("dont_impersonate"):
             return
 
-        # Checks for manual overrides or sticky retry sessions
-        # Respects manually set browser in the spider,
-        # unless this is a retry where rotation to a new identity is required.
         manual_impersonate = request.meta.get("impersonate")
         current_retry = request.meta.get("retry_times", 0)
         assigned_at = request.meta.get("_impersonate_assigned_at")
 
-        # Skips if assigned this turn or manually set (unless rotating for retry).
+        # Initialize identity history
+        history: list[dict] = request.meta.setdefault("_impersonate_history", [])
+
+        # Skip if already assigned for this specific retry turn
         if assigned_at == current_retry:
             return
 
-        # If user set it manually in start_requests, treat as sticky for run 0
+        # 1. Handle Manual Impersonation (Sticky for Retry 0)
         if manual_impersonate and "_impersonate_assigned_at" not in request.meta:
             request.meta["_impersonate_assigned_at"] = 0
-            self._set_cookie_jar(request, manual_impersonate, request.meta.get("proxy"))
+            
+            # Record the manual choice so it counts as "used" if it fails
+            history.append({
+                "browser": manual_impersonate,
+                "proxy": request.meta.get("proxy"),
+            })
+
+            self._set_cookie_jar(
+                request, manual_impersonate, request.meta.get("proxy")
+            )
             return
 
-        # Selects an identity based on retry logic
-        candidates = self.pool
+        # 2. Determine Used Identities from History
+        # We create a set of tuples (browser, proxy) from the history list
+        used_identities = {
+            (item["browser"], item["proxy"]) 
+            for item in history
+        }
 
-        # Filtering logic on retry
-        if current_retry > 0:
-            prev_proxy = request.meta.get("proxy")
-            prev_browser = request.meta.get("impersonate")
+        # 3. Calculate Available Candidates (Pool - Used)
+        # Works for both proxy scenarios and local-only (proxy=None) scenarios
+        available_candidates = [
+            identity for identity in self.pool 
+            if identity not in used_identities
+        ]
 
-            if self.has_multiple_proxies:
-                # Strategy A: Forces IP Rotation
-                # If multiple proxies are available, priority is to change the IP address.
-                # The browser is selected randomly.
-                candidates = [p for p in self.pool if p[1] != prev_proxy]
-                logger.debug(f"Retry {current_retry}: Rotating Proxy (IP change).")
-            else:
-                # Strategy B: Forces Browser Rotation
-                # If Local or only 1 Proxy, changes the TLS fingerprint/Browser.
-                candidates = [p for p in self.pool if p[0] != prev_browser]
-                logger.debug(f"Retry {current_retry}: Rotating Browser (IP locked).")
+        # 4. Abort if exhausted
+        if not available_candidates:
+            logger.error(
+                f"Url: {request.url} | "
+                f"Exhausted all {len(self.pool)} browser/proxy combinations after "
+                f"{current_retry} retries. Aborting request."
+            )
+            raise IgnoreRequest("Exhausted all impersonation identities.")
 
-            # Failsafe: If filtering left us empty (shouldn't happen unless config is tiny),
-            # revert to full pool to keep the request alive.
-            if not candidates:
-                logger.warning(
-                    "No alternative identities available for retry. Reusing pool."
-                )
-                candidates = self.pool
+        # 5. Select new identity
+        browser, proxy = random.choice(available_candidates)
 
-        # Selects and assigns the identity
-        browser, proxy = random.choice(candidates)
+        logger.debug(
+            f"Url: {request.url} | Retry: {current_retry} | "
+            f"Assigning: {browser} | Proxy: {proxy}"
+        )
 
         request.meta["impersonate"] = browser
         request.meta["_impersonate_assigned_at"] = current_retry
 
-        # Proxy Handling
-        # Respect dont_proxy standard if set, otherwise apply proxy
+        # Record identity usage
+        history.append({
+            "browser": browser,
+            "proxy": proxy,
+        })
+
+        # Proxy handling
         if not request.meta.get("dont_proxy"):
             if proxy:
                 request.meta["proxy"] = proxy
             elif "proxy" in request.meta:
-                # Clean up if we switched from a proxy-identity to a local-identity
+                # If we switched to a local identity (proxy=None), ensure we clean up old proxy meta
                 del request.meta["proxy"]
 
-        # Sets the Cookie Jar for session isolation
+        # Cookie isolation
         self._set_cookie_jar(request, browser, proxy)
 
     def _set_cookie_jar(
@@ -122,11 +134,9 @@ class ScrapyImpersonateSessionMiddleware:
     ) -> None:
         """
         Calculates a deterministic cookie jar ID based on the identity pair.
-        This ensures that cookies acquired by 'Chrome v110 on Proxy A' are never
-        leaked to 'Safari on Proxy B'.
+        Ensures cookies never leak across browser/proxy combinations.
         """
         if self.cookies_enabled and not request.meta.get("cookiejar"):
-            # We use a hash to keep the meta key clean and short
             pair_id = f"{browser}|{proxy or 'local'}"
             jar_id = hashlib.md5(pair_id.encode("utf-8")).hexdigest()[:12]
             request.meta["cookiejar"] = jar_id
