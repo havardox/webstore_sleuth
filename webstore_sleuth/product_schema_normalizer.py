@@ -57,6 +57,7 @@ class SchemaEntity:
         types: Normalized lower-case type names (e.g., ["product"]).
         properties: The payload containing values or nested SchemaEntities.
     """
+
     types: list[str] = field(default_factory=list)
     properties: dict[str, Any] = field(default_factory=dict)
 
@@ -114,6 +115,7 @@ class BaseStrategy(ABC):
     2. Build entity trees (strategy-specific).
     3. Flatten and yield all entities (shared).
     """
+
     def extract(self, data: dict[str, Any]) -> Iterable[SchemaEntity]:
         """
         Main entry point for extracting entities from a data dictionary.
@@ -126,7 +128,7 @@ class BaseStrategy(ABC):
         """
         # HOOK 1: Get the raw list of dictionaries to process
         raw_nodes = self._get_nodes(data)
-        
+
         root_entities = []
         for item in raw_nodes:
             # HOOK 2: Transform raw dict -> SchemaEntity
@@ -134,7 +136,7 @@ class BaseStrategy(ABC):
                 entity = self._build_tree(item)
                 if isinstance(entity, SchemaEntity):
                     root_entities.append(entity)
-        
+
         # Standard: Flatten everything so consumers don't miss nested items
         for entity in root_entities:
             yield from _flatten_tree(entity)
@@ -143,10 +145,10 @@ class BaseStrategy(ABC):
     def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
         """
         Return the list of raw dictionaries to process.
-        
+
         Input:
             Full data dictionary (e.g., {"json-ld": ..., "microdata": ...})
-        
+
         Output:
             List of specific nodes (e.g., the contents of the "json-ld" key).
         """
@@ -156,10 +158,10 @@ class BaseStrategy(ABC):
     def _build_tree(self, item: Any) -> Any:
         """
         Parse a single item (dict, list, or primitive) into a SchemaEntity or value.
-        
+
         Input:
             Raw dictionary: {"@type": "Thing", "name": "A"}
-        
+
         Output:
             SchemaEntity(types=['thing'], properties={'name': 'A'})
         """
@@ -171,6 +173,7 @@ class JsonLdStrategy(BaseStrategy):
     Converts JSON-LD trees into SchemaEntity trees.
     Handles standard JSON-LD hierarchies and @graph definitions.
     """
+
     def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
         """
         Extracts JSON-LD nodes, unwrapping @graph if present.
@@ -187,7 +190,7 @@ class JsonLdStrategy(BaseStrategy):
                     }
                 ]
             }
-        
+
         Output (Flattened list of nodes):
             [
                 {"@type": "Product", "name": "A"},
@@ -210,7 +213,7 @@ class JsonLdStrategy(BaseStrategy):
 
         Input:
             {"@type": "Product", "name": "Widget"}
-        
+
         Output:
             SchemaEntity(types=['product'], properties={'name': 'Widget'})
         """
@@ -241,9 +244,10 @@ class MicrodataStrategy(BaseStrategy):
     """
     Converts Microdata structures into SchemaEntity trees.
     """
+
     def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
         """
-        Extracts raw Microdata nodes. 
+        Extracts raw Microdata nodes.
         Note that Microdata items wrap their attributes in a 'properties' dict.
 
         Input:
@@ -261,7 +265,7 @@ class MicrodataStrategy(BaseStrategy):
                     }
                 ]
             }
-        
+
         Output (List of raw microdata items):
             [
                 {
@@ -316,6 +320,7 @@ class SchemaNormalizer:
     Orchestrator that produces a flat list of normalized SchemaEntities
     from multiple extraction strategies.
     """
+
     def __init__(self, strategies: list[BaseStrategy] | None = None):
         self.strategies = strategies or [JsonLdStrategy(), MicrodataStrategy()]
 
