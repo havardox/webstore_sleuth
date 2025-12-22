@@ -1,10 +1,49 @@
 """
 Normalizes structured data (JSON-LD and Microdata) into a consistent
-typed object format using a Protocol-based Strategy pattern.
+recursive SchemaEntity tree.
+
+EXAMPLES:
+
+    1. JSON-LD Input:
+       {
+           "@type": "Product",
+           "name": "Super Widget",
+           "offers": {
+               "@type": "Offer",
+               "price": "19.99"
+           }
+       }
+
+       --> Becomes SchemaEntity:
+       SchemaEntity(
+           types=['product'],
+           properties={
+               'name': 'Super Widget',
+               'offers': SchemaEntity(
+                   types=['offer'],
+                   properties={'price': '19.99'}
+               )
+           }
+       )
+
+    2. Microdata Input (where properties are nested):
+       {
+           "type": "http://schema.org/Product",
+           "properties": {
+               "name": "Super Widget",
+               "offers": {
+                    "type": "http://schema.org/Offer",
+                    "properties": { "price": "19.99" }
+               }
+           }
+       }
+
+       --> Becomes the same SchemaEntity structure as above.
 """
+from abc import ABC, abstractmethod
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from webstore_sleuth.utils.converters import ensure_list
 
@@ -12,154 +51,295 @@ from webstore_sleuth.utils.converters import ensure_list
 @dataclass(frozen=True)
 class SchemaEntity:
     """
-    Standardized return type for extracted schema entities.
-    
+    Standardized extracted entity.
+
     Attributes:
-        types: A list of normalized schema type strings (e.g., ['product']).
-        properties: The dictionary containing the entity's attributes.
+        types: Normalized lower-case type names (e.g., ["product"]).
+        properties: The payload containing values or nested SchemaEntities.
     """
-    types: list[str]
+    types: list[str] = field(default_factory=list)
     properties: dict[str, Any] = field(default_factory=dict)
 
 
 def _normalize_type_strings(t: Any) -> list[str]:
     """
-    Parses and standardizes schema type definitions into a flat list of strings.
+    Parses and standardizes schema type definitions.
+
+    Input:
+        "https://schema.org/Product"
+        OR ["Product", "http://schema.org/Thing"]
+
+    Output:
+        ["product"]
+        OR ["product", "thing"]
     """
     raw = ensure_list(t)
     out: list[str] = []
-
     for item in raw:
         if isinstance(item, str) and item.strip():
-            # Isolates the class name from URLs and fragment identifiers
             token = item.strip().replace("#", "/").rsplit("/", 1)[-1]
             out.append(token.lower())
-
     return out
 
 
-@runtime_checkable
-class ExtractionStrategy(Protocol):
+def _flatten_tree(item: Any) -> Generator[SchemaEntity, None, None]:
     """
-    Interface defining the contract for data extraction strategies.
-    Must return strongly-typed SchemaEntity objects.
+    Recursively walks an item. If it is (or contains) a SchemaEntity,
+    yields the entity itself and recursively yields all entities
+    nested within its properties.
+
+    Input:
+        SchemaEntity(types=['product'], properties={
+            'offer': SchemaEntity(types=['offer'], ...)
+        })
+
+    Output (Yields):
+        1. SchemaEntity(types=['product'], ...)
+        2. SchemaEntity(types=['offer'], ...)
     """
-    def extract(self, data: dict[str, Any]) -> Iterable[SchemaEntity]:
-        ...
+    if isinstance(item, list):
+        for x in item:
+            yield from _flatten_tree(x)
+
+    elif isinstance(item, SchemaEntity):
+        yield item
+        for val in item.properties.values():
+            yield from _flatten_tree(val)
 
 
-class JsonLdStrategy:
+class BaseStrategy(ABC):
     """
-    Strategy that identifies and extracts JSON-LD nodes as SchemaEntity objects.
+    Abstract base strategy that enforces a consistent workflow:
+    1. Gather raw nodes (strategy-specific).
+    2. Build entity trees (strategy-specific).
+    3. Flatten and yield all entities (shared).
     """
     def extract(self, data: dict[str, Any]) -> Iterable[SchemaEntity]:
-        candidates: list[SchemaEntity] = []
-        raw_nodes = ensure_list(data.get("json-ld"))
+        """
+        Main entry point for extracting entities from a data dictionary.
+
+        Input:
+            {"json-ld": [...], "microdata": [...]}
+
+        Output:
+            Iterable yielding flattened SchemaEntity objects.
+        """
+        # HOOK 1: Get the raw list of dictionaries to process
+        raw_nodes = self._get_nodes(data)
         
-        for entry in raw_nodes:
-            candidates.extend(self._extract_nodes(entry))
-            
-        return candidates
-
-    def _extract_nodes(self, node: Any) -> Generator[SchemaEntity, None, None]:
-        """
-        Recursively walks the node tree. When a typed node is found, it is yielded
-        as a SchemaEntity.
-        """
-        if isinstance(node, list):
-            for item in node:
-                yield from self._extract_nodes(item)
-
-        elif isinstance(node, dict):
-            # 1. Detection: Check for JSON-LD type definitions
-            node_type = node.get("@type") or node.get("type")
-
-            if node_type:
-                # Separate the raw properties from the normalized type
-                normalized_types = _normalize_type_strings(node_type)
-                
-                # We create a copy of properties to avoid mutation, 
-                # effectively stripping the definition of 'type' from the payload 
-                # if desired, or keeping it for reference. Here we keep the raw node.
-                yield SchemaEntity(
-                    types=normalized_types, 
-                    properties=node.copy()
-                )
-
-            # 2. Recursion: Deep search for nested entities in values
-            for value in node.values():
-                yield from self._extract_nodes(value)
-
-
-class MicrodataStrategy:
-    """
-    Strategy that processes Microdata into SchemaEntity objects.
-    Nested Microdata items are also converted to SchemaEntity instances within the properties.
-    """
-    def extract(self, data: dict[str, Any]) -> Iterable[SchemaEntity]:
-        candidates: list[SchemaEntity] = []
-        raw_nodes = ensure_list(data.get("microdata"))
-
+        root_entities = []
         for item in raw_nodes:
+            # HOOK 2: Transform raw dict -> SchemaEntity
             if isinstance(item, dict):
-                entity = self._normalize_item(item)
-                # Ensure the result is actually an entity (it might be raw data if no type found)
+                entity = self._build_tree(item)
                 if isinstance(entity, SchemaEntity):
-                    candidates.append(entity)
+                    root_entities.append(entity)
         
-        return candidates
+        # Standard: Flatten everything so consumers don't miss nested items
+        for entity in root_entities:
+            yield from _flatten_tree(entity)
 
-    def _normalize_item(self, item: dict[str, Any]) -> SchemaEntity | dict[str, Any]:
+    @abstractmethod
+    def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
         """
-        Converts a raw Microdata dictionary into a SchemaEntity.
-        """
-        # Extract and normalize the type
-        raw_type = item.get("type")
-        normalized_types = _normalize_type_strings(raw_type)
-
-        # Process properties
-        normalized_props: dict[str, Any] = {}
-        properties = item.get("properties", {})
+        Return the list of raw dictionaries to process.
         
-        if isinstance(properties, dict):
-            for key, val in properties.items():
-                normalized_props[key] = self._convert_value(val)
-
-        # If it has a type, it's a SchemaEntity. Otherwise, it's just a dict wrapper.
-        # (Microdata items usually have types, but we handle the edge case).
-        return SchemaEntity(types=normalized_types, properties=normalized_props)
-
-    def _convert_value(self, val: Any) -> Any:
+        Input:
+            Full data dictionary (e.g., {"json-ld": ..., "microdata": ...})
+        
+        Output:
+            List of specific nodes (e.g., the contents of the "json-ld" key).
         """
-        Recursively processes values. If a nested item is found, it is converted 
-        to a SchemaEntity, allowing for deep object traversal.
+        pass
+
+    @abstractmethod
+    def _build_tree(self, item: Any) -> Any:
+        """
+        Parse a single item (dict, list, or primitive) into a SchemaEntity or value.
+        
+        Input:
+            Raw dictionary: {"@type": "Thing", "name": "A"}
+        
+        Output:
+            SchemaEntity(types=['thing'], properties={'name': 'A'})
+        """
+        pass
+
+
+class JsonLdStrategy(BaseStrategy):
+    """
+    Converts JSON-LD trees into SchemaEntity trees.
+    Handles standard JSON-LD hierarchies and @graph definitions.
+    """
+    def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
+        """
+        Extracts JSON-LD nodes, unwrapping @graph if present.
+
+        Input:
+            {
+                "json-ld": [
+                    {
+                        "@context": "...",
+                        "@graph": [
+                            {"@type": "Product", "name": "A"},
+                            {"@type": "WebPage", "name": "B"}
+                        ]
+                    }
+                ]
+            }
+        
+        Output (Flattened list of nodes):
+            [
+                {"@type": "Product", "name": "A"},
+                {"@type": "WebPage", "name": "B"}
+            ]
+        """
+        raw = ensure_list(data.get("json-ld"))
+        nodes = []
+        for node in raw:
+            # Expand @graph if present
+            if isinstance(node, dict) and "@graph" in node:
+                nodes.extend(ensure_list(node["@graph"]))
+            else:
+                nodes.append(node)
+        return nodes
+
+    def _build_tree(self, data: Any) -> Any:
+        """
+        Recursively transforms raw JSON-LD dicts into SchemaEntity objects.
+
+        Input:
+            {"@type": "Product", "name": "Widget"}
+        
+        Output:
+            SchemaEntity(types=['product'], properties={'name': 'Widget'})
+        """
+        if isinstance(data, list):
+            return [self._build_tree(x) for x in data]
+
+        if isinstance(data, dict):
+            raw_type = data.get("@type") or data.get("type")
+
+            # If no type, it's just a dictionary property
+            if not raw_type:
+                return {k: self._build_tree(v) for k, v in data.items()}
+
+            norm_types = _normalize_type_strings(raw_type)
+            norm_props = {}
+
+            for k, v in data.items():
+                if k in ("@type", "type", "@context", "@id"):
+                    continue
+                norm_props[k] = self._build_tree(v)
+
+            return SchemaEntity(types=norm_types, properties=norm_props)
+
+        return data
+
+
+class MicrodataStrategy(BaseStrategy):
+    """
+    Converts Microdata structures into SchemaEntity trees.
+    """
+    def _get_nodes(self, data: dict[str, Any]) -> list[Any]:
+        """
+        Extracts raw Microdata nodes. 
+        Note that Microdata items wrap their attributes in a 'properties' dict.
+
+        Input:
+            {
+                "microdata": [
+                    {
+                        "type": "http://schema.org/Product",
+                        "properties": {
+                            "name": "Widget",
+                            "offers": {
+                                "type": "http://schema.org/Offer",
+                                "properties": {"price": "10"}
+                            }
+                        }
+                    }
+                ]
+            }
+        
+        Output (List of raw microdata items):
+            [
+                {
+                    "type": "http://schema.org/Product",
+                    "properties": {
+                        "name": "Widget",
+                        "offers": { ... }
+                    }
+                }
+            ]
+        """
+        return ensure_list(data.get("microdata"))
+
+    def _build_tree(self, val: Any) -> Any:
+        """
+        Hoists 'properties' to the root and normalizes types.
+
+        Input:
+            {
+                "type": "http://schema.org/Offer",
+                "properties": {"price": "100"}
+            }
+
+        Output:
+            SchemaEntity(types=['offer'], properties={'price': '100'})
         """
         if isinstance(val, list):
-            return [self._convert_value(v) for v in val]
+            return [self._build_tree(v) for v in val]
 
         if isinstance(val, dict):
-            # Check if this dict represents a nested Microdata item
-            if "properties" in val or "type" in val:
-                return self._normalize_item(val)
-            return val
+            raw_type = val.get("type")
+            raw_props = val.get("properties")
+
+            # Heuristic: It's an entity if it has a type OR explicit properties
+            if raw_type or raw_props is not None:
+                norm_types = _normalize_type_strings(raw_type)
+                norm_props = {}
+
+                if isinstance(raw_props, dict):
+                    for k, v in raw_props.items():
+                        norm_props[k] = self._build_tree(v)
+
+                return SchemaEntity(types=norm_types, properties=norm_props)
+
+            return {k: self._build_tree(v) for k, v in val.items()}
 
         return val
 
 
 class SchemaNormalizer:
     """
-    Context class that executes extraction strategies and collects SchemaEntity results.
+    Orchestrator that produces a flat list of normalized SchemaEntities
+    from multiple extraction strategies.
     """
-    def __init__(self, strategies: list[ExtractionStrategy] = None):
+    def __init__(self, strategies: list[BaseStrategy] | None = None):
         self.strategies = strategies or [JsonLdStrategy(), MicrodataStrategy()]
 
     def collect_candidates(self, data: dict[str, Any]) -> list[SchemaEntity]:
         """
-        Aggregates normalized SchemaEntity objects from all strategies.
+        Runs all configured strategies against the input data and aggregates results.
+
+        Input:
+            {
+                "json-ld": [{"@type": "Product", ...}],
+                "microdata": [{"type": "Offer", ...}]
+            }
+
+        Output:
+            [
+                SchemaEntity(types=['product'], ...),
+                SchemaEntity(types=['offer'], ...)
+            ]
         """
         candidates: list[SchemaEntity] = []
-
         for strategy in self.strategies:
-            candidates.extend(strategy.extract(data))
-
+            try:
+                candidates.extend(strategy.extract(data))
+            except Exception:
+                # Silently ignore failures in one strategy
+                continue
         return candidates
