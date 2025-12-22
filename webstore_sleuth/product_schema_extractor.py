@@ -11,7 +11,7 @@ from webstore_sleuth.utils.converters import (
     parse_iso_date,
     ensure_list,
 )
-from webstore_sleuth.product_schema_normalizer import SchemaNormalizer, SchemaEntity
+from webstore_sleuth.schema_org_extractor import SchemaOrgExtractor, SchemaOrgEntity
 
 GTIN_KEYS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "ean", "isbn")
 
@@ -31,13 +31,13 @@ class ProductCandidate:
     ASSUMPTION: All nested structured data are SchemaEntity objects, not dicts.
     """
 
-    def __init__(self, entity: SchemaEntity):
+    def __init__(self, entity: SchemaOrgEntity):
         self.entity = entity
         self.props = entity.properties
 
         # Filter offers: they are now guaranteed to be SchemaEntity if structured
         raw_offers = ensure_list(self.props.get("offers"))
-        self.offers = [o for o in raw_offers if isinstance(o, SchemaEntity)]
+        self.offers = [o for o in raw_offers if isinstance(o, SchemaOrgEntity)]
 
     @property
     def title(self) -> str | None:
@@ -59,7 +59,7 @@ class ProductCandidate:
 
         # Iterate over SchemaEntities (identifiers are objects)
         for ident in raw_identifiers:
-            if not isinstance(ident, SchemaEntity):
+            if not isinstance(ident, SchemaOrgEntity):
                 continue
 
             # Direct access to .properties
@@ -71,14 +71,14 @@ class ProductCandidate:
         return None
 
     @property
-    def best_offer(self) -> SchemaEntity | None:
+    def best_offer(self) -> SchemaOrgEntity | None:
         """
         Returns the best Offer SchemaEntity, or None.
         """
         if not self.offers:
             return None
 
-        def score(o: SchemaEntity) -> tuple[int, int]:
+        def score(o: SchemaOrgEntity) -> tuple[int, int]:
             avail = str(o.properties.get("availability") or "").lower()
             avail_score = (
                 0
@@ -100,7 +100,7 @@ class ProductCandidate:
         price_spec = offer.properties.get("priceSpecification")
         spec_price = (
             price_spec.properties.get("price")
-            if isinstance(price_spec, SchemaEntity)
+            if isinstance(price_spec, SchemaOrgEntity)
             else None
         )
 
@@ -116,7 +116,7 @@ class ProductCandidate:
         price_spec = offer.properties.get("priceSpecification")
         spec_curr = (
             price_spec.properties.get("priceCurrency")
-            if isinstance(price_spec, SchemaEntity)
+            if isinstance(price_spec, SchemaOrgEntity)
             else None
         )
 
@@ -140,7 +140,7 @@ class ProductCandidate:
             self.props.get("identifier") or self.props.get("additionalProperty")
         )
         for ident in raw_identifiers:
-            if not isinstance(ident, SchemaEntity):
+            if not isinstance(ident, SchemaOrgEntity):
                 continue
 
             pid = str(
@@ -191,7 +191,7 @@ class ProductCandidate:
 # ---------------------------------------------------------------------------
 class ProductExtractor:
     def __init__(self):
-        self.normalizer = SchemaNormalizer()
+        self.normalizer = SchemaOrgExtractor()
 
     def extract_from_html(self, html: str, url: str) -> ProductCandidate | None:
         data = extruct.extract(

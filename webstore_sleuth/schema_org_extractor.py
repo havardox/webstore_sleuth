@@ -49,9 +49,9 @@ from webstore_sleuth.utils.converters import ensure_list
 
 
 @dataclass(frozen=True)
-class SchemaEntity:
+class SchemaOrgEntity:
     """
-    Standardized extracted entity.
+    Standardized extracted Schema.org entity.
 
     Attributes:
         types: Normalized lower-case type names (e.g., ["product"]).
@@ -83,7 +83,7 @@ def _normalize_type_strings(t: Any) -> list[str]:
     return out
 
 
-def _flatten_tree(item: Any) -> Generator[SchemaEntity, None, None]:
+def _flatten_tree(item: Any) -> Generator[SchemaOrgEntity, None, None]:
     """
     Recursively walks an item. If it is (or contains) a SchemaEntity,
     yields the entity itself and recursively yields all entities
@@ -102,21 +102,22 @@ def _flatten_tree(item: Any) -> Generator[SchemaEntity, None, None]:
         for x in item:
             yield from _flatten_tree(x)
 
-    elif isinstance(item, SchemaEntity):
+    elif isinstance(item, SchemaOrgEntity):
         yield item
         for val in item.properties.values():
             yield from _flatten_tree(val)
 
 
-class BaseStrategy(ABC):
+class BaseExtractionStrategy(ABC):
     """
-    Abstract base strategy that enforces a consistent workflow:
+    Abstract base strategy for extracting Schema.org entities.
+    :
     1. Gather raw nodes (strategy-specific).
     2. Build entity trees (strategy-specific).
     3. Flatten and yield all entities (shared).
     """
 
-    def extract(self, data: dict[str, Any]) -> Iterable[SchemaEntity]:
+    def extract(self, data: dict[str, Any]) -> Iterable[SchemaOrgEntity]:
         """
         Main entry point for extracting entities from a data dictionary.
 
@@ -134,7 +135,7 @@ class BaseStrategy(ABC):
             # HOOK 2: Transform raw dict -> SchemaEntity
             if isinstance(item, dict):
                 entity = self._build_tree(item)
-                if isinstance(entity, SchemaEntity):
+                if isinstance(entity, SchemaOrgEntity):
                     root_entities.append(entity)
 
         # Standard: Flatten everything so consumers don't miss nested items
@@ -235,7 +236,7 @@ class JsonLdStrategy(BaseStrategy):
                     continue
                 norm_props[k] = self._build_tree(v)
 
-            return SchemaEntity(types=norm_types, properties=norm_props)
+            return SchemaOrgEntity(types=norm_types, properties=norm_props)
 
         return data
 
@@ -308,23 +309,23 @@ class MicrodataStrategy(BaseStrategy):
                     for k, v in raw_props.items():
                         norm_props[k] = self._build_tree(v)
 
-                return SchemaEntity(types=norm_types, properties=norm_props)
+                return SchemaOrgEntity(types=norm_types, properties=norm_props)
 
             return {k: self._build_tree(v) for k, v in val.items()}
 
         return val
 
 
-class SchemaNormalizer:
+class SchemaOrgExtractor:
     """
-    Orchestrator that produces a flat list of normalized SchemaEntities
-    from multiple extraction strategies.
+    Facade for extracting and normalizing Schema.org (JSON-LD, Microdata)
+    into a unified SchemaEntity format.
     """
 
     def __init__(self, strategies: list[BaseStrategy] | None = None):
         self.strategies = strategies or [JsonLdStrategy(), MicrodataStrategy()]
 
-    def collect_candidates(self, data: dict[str, Any]) -> list[SchemaEntity]:
+    def collect_candidates(self, data: dict[str, Any]) -> list[SchemaOrgEntity]:
         """
         Runs all configured strategies against the input data and aggregates results.
 
@@ -340,7 +341,7 @@ class SchemaNormalizer:
                 SchemaEntity(types=['offer'], ...)
             ]
         """
-        candidates: list[SchemaEntity] = []
+        candidates: list[SchemaOrgEntity] = []
         for strategy in self.strategies:
             try:
                 candidates.extend(strategy.extract(data))
