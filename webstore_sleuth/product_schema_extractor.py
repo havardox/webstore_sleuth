@@ -11,10 +11,7 @@ from webstore_sleuth.utils.converters import (
     parse_iso_date,
     ensure_list,
 )
-from webstore_sleuth.product_schema_normalizer import (
-    SchemaNormalizer, 
-    SchemaEntity
-)
+from webstore_sleuth.product_schema_normalizer import SchemaNormalizer, SchemaEntity
 
 GTIN_KEYS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "ean", "isbn")
 
@@ -37,7 +34,7 @@ class ProductCandidate:
     def __init__(self, entity: SchemaEntity):
         self.entity = entity
         self.props = entity.properties
-        
+
         # Filter offers: they are now guaranteed to be SchemaEntity if structured
         raw_offers = ensure_list(self.props.get("offers"))
         self.offers = [o for o in raw_offers if isinstance(o, SchemaEntity)]
@@ -59,14 +56,16 @@ class ProductCandidate:
         raw_identifiers = ensure_list(
             self.props.get("identifier") or self.props.get("additionalProperty")
         )
-        
+
         # Iterate over SchemaEntities (identifiers are objects)
         for ident in raw_identifiers:
             if not isinstance(ident, SchemaEntity):
                 continue
 
             # Direct access to .properties
-            pid = str(ident.properties.get("propertyID") or ident.properties.get("name") or "").lower()
+            pid = str(
+                ident.properties.get("propertyID") or ident.properties.get("name") or ""
+            ).lower()
             if pid in ("mpn", "manufacturer part number"):
                 return str(ident.properties.get("value"))
         return None
@@ -99,8 +98,12 @@ class ProductCandidate:
 
         # priceSpecification is now a SchemaEntity (if present)
         price_spec = offer.properties.get("priceSpecification")
-        spec_price = price_spec.properties.get("price") if isinstance(price_spec, SchemaEntity) else None
-        
+        spec_price = (
+            price_spec.properties.get("price")
+            if isinstance(price_spec, SchemaEntity)
+            else None
+        )
+
         raw_price = get_first_nonempty(offer.properties.get("price"), spec_price)
         return parse_price(raw_price)
 
@@ -111,11 +114,13 @@ class ProductCandidate:
             return None
 
         price_spec = offer.properties.get("priceSpecification")
-        spec_curr = price_spec.properties.get("priceCurrency") if isinstance(price_spec, SchemaEntity) else None
-        
-        return get_first_nonempty(
-            offer.properties.get("priceCurrency"), spec_curr
+        spec_curr = (
+            price_spec.properties.get("priceCurrency")
+            if isinstance(price_spec, SchemaEntity)
+            else None
         )
+
+        return get_first_nonempty(offer.properties.get("priceCurrency"), spec_curr)
 
     @property
     def ean(self) -> str | None:
@@ -137,8 +142,10 @@ class ProductCandidate:
         for ident in raw_identifiers:
             if not isinstance(ident, SchemaEntity):
                 continue
-            
-            pid = str(ident.properties.get("propertyID") or ident.properties.get("name") or "").lower()
+
+            pid = str(
+                ident.properties.get("propertyID") or ident.properties.get("name") or ""
+            ).lower()
             if any(k in pid for k in ("gtin", "ean", "isbn")):
                 return str(ident.properties.get("value"))
         return None
@@ -147,7 +154,7 @@ class ProductCandidate:
     def is_active(self) -> bool:
         offer = self.best_offer
         if not offer:
-            # Fallback: if we found a price on the main product but no offers, 
+            # Fallback: if we found a price on the main product but no offers,
             # extraction might assume active if strict logic isn't applied.
             # But based on strict logic: no offer = unknown/inactive.
             return False
@@ -160,11 +167,13 @@ class ProductCandidate:
             return True
 
         now = datetime.now(timezone.utc)
-        vf = parse_iso_date(offer.properties.get("validFrom") or self.props.get("validFrom"))
-        
+        vf = parse_iso_date(
+            offer.properties.get("validFrom") or self.props.get("validFrom")
+        )
+
         vt_source = (
-            offer.properties.get("validThrough") 
-            or offer.properties.get("priceValidUntil") 
+            offer.properties.get("validThrough")
+            or offer.properties.get("priceValidUntil")
             or self.props.get("validThrough")
         )
         vt = parse_iso_date(vt_source)
@@ -196,7 +205,7 @@ class ProductExtractor:
             for c in candidates
             if any("product" in t for t in c.types)
         ]
-        
+
         if not products:
             return None
 
