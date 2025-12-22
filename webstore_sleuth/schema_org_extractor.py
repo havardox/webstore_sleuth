@@ -169,7 +169,7 @@ class BaseExtractionStrategy(ABC):
         pass
 
 
-class JsonLdStrategy(BaseStrategy):
+class JsonLdStrategy(BaseExtractionStrategy):
     """
     Converts JSON-LD trees into SchemaEntity trees.
     Handles standard JSON-LD hierarchies and @graph definitions.
@@ -241,7 +241,7 @@ class JsonLdStrategy(BaseStrategy):
         return data
 
 
-class MicrodataStrategy(BaseStrategy):
+class MicrodataStrategy(BaseExtractionStrategy):
     """
     Converts Microdata structures into SchemaEntity trees.
     """
@@ -322,7 +322,7 @@ class SchemaOrgExtractor:
     into a unified SchemaEntity format.
     """
 
-    def __init__(self, strategies: list[BaseStrategy] | None = None):
+    def __init__(self, strategies: list[BaseExtractionStrategy] | None = None):
         self.strategies = strategies or [JsonLdStrategy(), MicrodataStrategy()]
 
     def collect_candidates(self, data: dict[str, Any]) -> list[SchemaOrgEntity]:
