@@ -7,6 +7,9 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
+from pathlib import Path
+
+
 BOT_NAME = "webstore_sleuth_scrapy"
 
 SPIDER_MODULES = ["webstore_sleuth_scrapy.spiders"]
@@ -95,25 +98,8 @@ URLLENGTH_LIMIT = 4096
 FEED_EXPORT_ENCODING = "utf-8"
 
 
-PROXIES = [
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8020",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8019",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8018",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8017",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8016",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8015",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8014",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8013",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8012",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8011",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8010",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8009",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8008",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8007",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8006",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8005",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8004",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8003",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8002",
-    "http://havardox_MXlRc:hZhQjbXrX=B9Zk+NA5355_=dC563@ddc.oxylabs.io:8001"
-]
+BASE_DIR = Path(__file__).resolve().parent
+
+PROXIES = None
+with open(BASE_DIR.parent / "proxies.txt") as f:
+    PROXIES = f.readlines()
