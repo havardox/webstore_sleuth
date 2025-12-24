@@ -24,7 +24,9 @@ RUN mkdir -p 'webstore_sleuth' && touch 'webstore_sleuth/__init__.py' && \
 
 # Copy project metadata and install dependencies
 COPY pyproject.toml poetry.lock* ./
-RUN poetry install --no-interaction --no-ansi --no-cache
+RUN poetry install --no-interaction --no-ansi --no-cache && \
+    playwright install --with-deps
+
 
 
 CMD ["python", "gpt_ner/server.py"]

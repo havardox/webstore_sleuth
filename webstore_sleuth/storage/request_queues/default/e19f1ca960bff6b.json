@@ -1,0 +1,42 @@
+{
+  "unique_key": "https://www.computeruniverse.net/en/p/1h64-0ad",
+  "url": "https://www.computeruniverse.net/en/p/1H64-0AD",
+  "method": "GET",
+  "payload": null,
+  "headers": {},
+  "user_data": {
+    "__crawlee": {
+      "state": 4,
+      "crawlDepth": 1
+    },
+    "label": "PRODUCT",
+    "site_config": {
+      "data": {
+        "category_urls": {
+          "https://www.computeruniverse.net/en/c/laptops-tablet-pcs-pcs/tablet-pcs": {
+            "category": "gpu"
+          }
+        },
+        "product_page_xpath": "//div[contains(@class, 'ProductListItemRow_head__name')]//a",
+        "title_xpath": null,
+        "description_xpath": null,
+        "price_xpath": null,
+        "currency_xpath": null,
+        "ean_xpath": null,
+        "mpn_xpath": null,
+        "is_active_xpath": null,
+        "cookies_consent_xpath": "//*[@id='consent-accept']",
+        "next_page_xpath": "(//button[@aria-label='Pagination naviButton'])[last()]",
+        "next_page_click": true,
+        "infinite_scroll": false
+      }
+    },
+    "category_meta": {
+      "category": "gpu"
+    }
+  },
+  "retry_count": 0,
+  "no_retry": false,
+  "loaded_url": null,
+  "handled_at": "2025-12-23 06:43:50.201926+00:00"
+}

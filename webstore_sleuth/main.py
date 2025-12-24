@@ -1,5 +1,6 @@
-from webstore_sleuth.schemas import StaticSite
+from webstore_sleuth.schemas import BaseSite, DynamicSite
 from webstore_sleuth.scraper import crawl_all
+from webstore_sleuth.webstore_sleuth_crawlee.impl import CrawleeScraper
 from webstore_sleuth.webstore_sleuth_scrapy.impl import ScrapyScraper
 
 import logging
@@ -15,7 +16,7 @@ def main():
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
-    alternate_be = StaticSite(
+    alternate_be = BaseSite(
         category_urls={
             "https://www.alternate.be/CPUs": {"category": "cpu"},
             "https://www.alternate.be/Harde-schijven": {"category": "hdd"},
@@ -29,7 +30,7 @@ def main():
         next_page_xpath="//a[@aria-label='Volgende pagina']/@href",
     )
 
-    alternate_de = StaticSite(
+    alternate_de = BaseSite(
         category_urls={
             "https://www.alternate.de/CPUs": {"category": "cpu"},
             "https://www.alternate.de/SSD": {"category": "ssd"},
@@ -43,7 +44,7 @@ def main():
         next_page_xpath="//a[@aria-label='Nächste Seite']/@href",
     )
 
-    arlt_com = StaticSite(
+    arlt_com = BaseSite(
         category_urls={
             "https://www.arlt.com/Hardware/PC-Komponenten/Prozessoren/": {
                 "category": "cpu"
@@ -71,7 +72,7 @@ def main():
         next_page_xpath="//a[@aria-label='Weiter']/@href",
     )
 
-    cybertek_fr = StaticSite(
+    cybertek_fr = BaseSite(
         category_urls={
             "https://www.cybertek.fr/processeur-5.aspx": {"category": "cpu"},
             "https://www.cybertek.fr/disque-dur-interne-2-5-82.aspx": {
@@ -90,7 +91,7 @@ def main():
         next_page_xpath="//a[@rel='next' and contains(@class, 'fleche_mob')]/@href",
     )
 
-    jacob_de = StaticSite(
+    jacob_de = BaseSite(
         category_urls={
             "https://www.jacob.de/prozessoren-cpu/": {"category": "cpu"},
             "https://www.jacob.de/ddr5-ram-speichermodule/": {"category": "ram"},
@@ -107,7 +108,7 @@ def main():
         next_page_xpath="//a[contains(@class, 'next-item')]/@href",
     )
 
-    amazon_de = StaticSite(
+    amazon_de = BaseSite(
         category_urls={
             "http://www.amazon.de/s?k=grafikkarte+1070": {
                 "category": "amazon_de_rtx_1070"
@@ -118,14 +119,32 @@ def main():
         title_xpath="//span[@id='productTitle']//text()",
     )
 
+ # Definition for ComputerUniverse using the selectors derived from your HTML
+    computeruniverse_net = DynamicSite(
+        category_urls={
+            "https://www.computeruniverse.net/en/c/laptops-tablet-pcs-pcs/tablet-pcs": {"category": "gpu"}
+        },
+        # Targets the specific link inside the product headline
+        product_page_xpath="//div[contains(@class, 'ProductListItemRow_head__name')]//a",
+        
+        # Targets the pagination button. 
+        # We use [last()] to ensure we click 'Next' if a 'Previous' button is also present.
+        next_page_xpath="(//button[@aria-label='Pagination naviButton'])[last()]",
+        
+        next_page_click=True,
+        infinite_scroll=False,
+        cookies_consent_xpath="//*[@id='consent-accept']"
+    )
     # Initializes the Scraper
     # Passes all sites to the Scrapy implementation.
     # Runs a single reactor and crawls them concurrently based on Scrapy settings.
     # sites_to_crawl = [alternate_be, alternate_de, arlt_com, cybertek_fr, jacob_de]
-    sites_to_crawl = [amazon_de]
+    sites_to_crawl = [computeruniverse_net]
 
     # Instantiates the ScrapyScraper (other implementations like Selenium could be used here)
-    scrapy_scraper = ScrapyScraper(sites=sites_to_crawl)
+
+    crawlee_scraper = CrawleeScraper(sites=sites_to_crawl)
+    # scrapy_scraper = ScrapyScraper()
 
     # Runs the generic crawl_all function
     # Iterates over the generator, which blocks until items start flowing in.
@@ -133,7 +152,7 @@ def main():
 
     count = 0
     try:
-        for product in crawl_all([scrapy_scraper]):
+        for product in crawl_all([crawlee_scraper]):
             count += 1
             # Access generic fields
             price_display = (

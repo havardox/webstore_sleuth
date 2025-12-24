@@ -22,7 +22,8 @@
 			"extensions": [
 				"ms-python.python",
 				"ms-python.black-formatter",
-				"iyulab.copy-text-selected-files"
+				"iyulab.copy-text-selected-files",
+				"google.geminicodeassist"
 			]
 		}
 	}

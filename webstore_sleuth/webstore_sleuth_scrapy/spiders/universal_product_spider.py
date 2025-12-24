@@ -1,21 +1,21 @@
 import logging
 import scrapy
 import re
-from webstore_sleuth.schemas import BaseSite, StaticSite
+from webstore_sleuth.schemas import BaseSite, BaseSite
 from webstore_sleuth.product_schema_extractor import extract_product
 
 
 class UniversalProductSpider(scrapy.Spider):
     name = "universal_product_spider"
 
-    def __init__(self, sites: list[StaticSite], *args, **kwargs):
+    def __init__(self, sites: list[BaseSite], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sites = sites
 
     def start_requests(self):
         for site in self.sites:
             for url, category_meta in site.category_urls.items():
-                if isinstance(site, StaticSite):
+                if isinstance(site, BaseSite):
                     yield scrapy.Request(
                         url=url,
                         callback=self.parse_category,
@@ -29,7 +29,7 @@ class UniversalProductSpider(scrapy.Spider):
                     raise ValueError("Invalid Site type for ScrapyScraper")
 
     def parse_category(self, response):
-        site: StaticSite = response.meta["site_config"]
+        site: BaseSite = response.meta["site_config"]
         category_meta = response.meta["category_meta"]
 
         # Extracts links to individual product pages from the category listing
