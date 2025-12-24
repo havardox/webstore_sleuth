@@ -52,7 +52,7 @@ class BaseSite(BaseModel):
     ean_xpath: StrippedString | None = None
     mpn_xpath: StrippedString | None = None
     is_active_xpath: StrippedString | None = None
-    
+
     # Interaction selectors
     cookies_consent_xpath: StrippedString | None = None
 

@@ -10,7 +10,7 @@ async def main() -> None:
             "args": ["--no-sandbox", "--disable-setuid-sandbox"],
         },
         headless=True,
-        browser_type='firefox'
+        browser_type="firefox",
     )
 
     @crawler.router.default_handler

@@ -119,21 +119,21 @@ def main():
         title_xpath="//span[@id='productTitle']//text()",
     )
 
- # Definition for ComputerUniverse using the selectors derived from your HTML
+    # Definition for ComputerUniverse using the selectors derived from your HTML
     computeruniverse_net = DynamicSite(
         category_urls={
-            "https://www.computeruniverse.net/en/c/laptops-tablet-pcs-pcs/tablet-pcs": {"category": "gpu"}
+            "https://www.computeruniverse.net/en/c/laptops-tablet-pcs-pcs/tablet-pcs": {
+                "category": "gpu"
+            }
         },
         # Targets the specific link inside the product headline
         product_page_xpath="//div[contains(@class, 'ProductListItemRow_head__name')]//a",
-        
-        # Targets the pagination button. 
+        # Targets the pagination button.
         # We use [last()] to ensure we click 'Next' if a 'Previous' button is also present.
         next_page_xpath="(//button[@aria-label='Pagination naviButton'])[last()]",
-        
         next_page_click=True,
         infinite_scroll=False,
-        cookies_consent_xpath="//*[@id='consent-accept']"
+        cookies_consent_xpath="//*[@id='consent-accept']",
     )
     # Initializes the Scraper
     # Passes all sites to the Scrapy implementation.

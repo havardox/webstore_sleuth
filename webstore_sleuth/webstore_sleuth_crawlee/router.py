@@ -1,4 +1,3 @@
-
 import hashlib
 from collections.abc import Callable
 from urllib.parse import urljoin
@@ -18,7 +17,9 @@ def _as_xpath_selector(xpath: str) -> str:
     return xpath if xpath.startswith("xpath=") else f"xpath={xpath}"
 
 
-async def _handle_cookie_consent(context: PlaywrightCrawlingContext, xpath: str | None) -> None:
+async def _handle_cookie_consent(
+    context: PlaywrightCrawlingContext, xpath: str | None
+) -> None:
     if not xpath:
         return
 
@@ -32,7 +33,9 @@ async def _handle_cookie_consent(context: PlaywrightCrawlingContext, xpath: str 
                 await locator.wait_for(state="hidden", timeout=5000)
                 context.log.info("Cookie consent banner dismissed and hidden.")
             except Exception as e:
-                context.log.warning(f"Clicked cookie consent, but it refused to hide immediately: {e}")
+                context.log.warning(
+                    f"Clicked cookie consent, but it refused to hide immediately: {e}"
+                )
     except Exception:
         return
 
@@ -94,7 +97,9 @@ async def _enqueue_xpath(
         context.log.error(f"Failed enqueue from xpath: {e}")
 
 
-def _get_product_extractor_data(context: PlaywrightCrawlingContext) -> tuple[dict[str, object], dict[str, object]]:
+def _get_product_extractor_data(
+    context: PlaywrightCrawlingContext,
+) -> tuple[dict[str, object], dict[str, object]]:
     return (
         context.request.user_data["site_config"],  # type: ignore[index]
         context.request.user_data.get("category_meta", {}),  # type: ignore[return-value]
@@ -124,14 +129,18 @@ async def _enqueue_next_category_request_via_click(
             context.log.info("No next page button visible. Category crawl complete.")
             return
     except Exception:
-        context.log.info("No next page button visible (lookup failed). Category crawl complete.")
+        context.log.info(
+            "No next page button visible (lookup failed). Category crawl complete."
+        )
         return
 
     before_url = context.page.url
 
     await _handle_cookie_consent(context, site.cookies_consent_xpath)
 
-    context.log.info(f"Next page available → Clicking to discover URL for page {current_page_num + 1}")
+    context.log.info(
+        f"Next page available → Clicking to discover URL for page {current_page_num + 1}"
+    )
     await button.click(timeout=5000)
 
     # Works for SPA pushState updates too.
@@ -148,7 +157,9 @@ async def _enqueue_next_category_request_via_click(
 
     next_url = context.page.url
     if next_url == before_url:
-        context.log.warning("Clicked Next, but URL did not change. Not enqueueing next page.")
+        context.log.warning(
+            "Clicked Next, but URL did not change. Not enqueueing next page."
+        )
         return
 
     next_req = Request.from_url(next_url, label=LABEL_CATEGORY)
@@ -180,7 +191,9 @@ def build_router(on_product: Callable[[Product], None]) -> Router:
 
         current_page_num = int(context.request.user_data.get("page_num", 1))
 
-        context.log.info(f"Processing CATEGORY page #{current_page_num} | URL: {context.page.url}")
+        context.log.info(
+            f"Processing CATEGORY page #{current_page_num} | URL: {context.page.url}"
+        )
 
         await _handle_cookie_consent(context, site.cookies_consent_xpath)
 
@@ -229,7 +242,9 @@ def build_router(on_product: Callable[[Product], None]) -> Router:
                 return None
             try:
                 selector = _as_xpath_selector(xpath)
-                return await context.page.locator(selector).first.inner_text(timeout=2000)
+                return await context.page.locator(selector).first.inner_text(
+                    timeout=2000
+                )
             except Exception:
                 return None
 
@@ -259,6 +274,8 @@ def build_router(on_product: Callable[[Product], None]) -> Router:
 
     @router.default_handler
     async def default_handler(context: PlaywrightCrawlingContext) -> None:
-        context.log.warning(f"Unhandled request: {context.request.url} ({context.request.label})")
+        context.log.warning(
+            f"Unhandled request: {context.request.url} ({context.request.label})"
+        )
 
     return router
