@@ -74,7 +74,9 @@ class PlaywrightCrawlerRunner:
             with proxies_path.open("r", encoding="utf-8") as f:
                 proxy_urls = [line.strip() for line in f if line.strip()]
 
-        proxy_configuration = ProxyConfiguration(proxy_urls=proxy_urls) if proxy_urls else None
+        proxy_configuration = (
+            ProxyConfiguration(proxy_urls=proxy_urls) if proxy_urls else None
+        )
 
         # One "job" per URL
         jobs: list[tuple[str, dict, dict]] = []
